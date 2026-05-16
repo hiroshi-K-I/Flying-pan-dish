@@ -1,0 +1,1243 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IDEA BOARD</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #0d0d14;
+  --card: #1e1e30;
+  --card-border: #3a3a5c;
+  --text: #e2e8f0;
+  --dim: #64748b;
+  --purple: #7b6cf6;
+  --cyan: #06b6d4;
+  --green: #10b981;
+  --amber: #f59e0b;
+  --pink: #ec4899;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Courier New', monospace;
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  user-select: none;
+}
+
+/* ─── HEADER ─── */
+#header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 7px 14px;
+  background: #080810;
+  border-bottom: 1px solid #1e1e30;
+  flex-shrink: 0;
+  z-index: 100;
+}
+
+#mode-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  transition: all 0.15s;
+  min-width: 90px;
+}
+#mode-badge.select {
+  background: rgba(123,108,246,0.12);
+  border: 1px solid var(--purple);
+  color: var(--purple);
+}
+#mode-badge.edit {
+  background: rgba(16,185,129,0.12);
+  border: 1px solid var(--green);
+  color: var(--green);
+}
+#mode-dot {
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: pulse 2s infinite;
+}
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+#app-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 4px;
+  color: rgba(255,255,255,0.35);
+}
+
+.hints {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.hint {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 9px;
+  color: var(--dim);
+}
+.hk {
+  background: #1e1e30;
+  border: 1px solid #3a3a5c;
+  border-radius: 3px;
+  padding: 1px 5px;
+  font-size: 9px;
+  color: rgba(255,255,255,0.6);
+}
+
+#toolbar {
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
+}
+.tb-btn {
+  background: #1a1a28;
+  border: 1px solid #3a3a5c;
+  border-radius: 4px;
+  color: var(--dim);
+  font-family: inherit;
+  font-size: 9px;
+  letter-spacing: 1px;
+  padding: 3px 8px;
+  cursor: pointer;
+  text-transform: uppercase;
+  transition: all 0.15s;
+}
+.tb-btn:hover { color: var(--text); border-color: #5a5a8c; background: #252538; }
+
+/* ─── BOARD ─── */
+#board-wrap {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+  cursor: default;
+}
+#board-wrap.panning { cursor: grabbing; }
+
+/* dot grid */
+#board-wrap::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(circle, #252538 1px, transparent 1px);
+  background-size: 28px 28px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+#board {
+  position: absolute;
+  width: 6000px;
+  height: 6000px;
+  top: 0; left: 0;
+  transform-origin: 0 0;
+}
+
+#zones-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+#svg-layer {
+  position: absolute;
+  top: 0; left: 0;
+  width: 6000px; height: 6000px;
+  pointer-events: none;
+  z-index: 2;
+}
+#objects-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+}
+
+/* ─── IDEA ─── */
+.idea {
+  position: absolute;
+  min-width: 150px;
+  max-width: 280px;
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  padding: 8px 12px 12px;
+  cursor: grab;
+  transition: border-color 0.2s, box-shadow 0.2s, transform 0.15s;
+}
+.idea:hover { border-color: #5a5a8c; }
+.idea.focused {
+  transform: translateY(-2px);
+  border-color: var(--purple);
+  box-shadow: 0 0 0 1px var(--purple), 0 0 24px rgba(123,108,246,0.35);
+}
+.idea[data-c="purple"].focused { border-color:var(--purple); box-shadow:0 0 0 1px var(--purple),0 0 24px rgba(123,108,246,0.35); }
+.idea[data-c="cyan"].focused   { border-color:var(--cyan);   box-shadow:0 0 0 1px var(--cyan),0 0 24px rgba(6,182,212,0.35); }
+.idea[data-c="green"].focused  { border-color:var(--green);  box-shadow:0 0 0 1px var(--green),0 0 24px rgba(16,185,129,0.35); }
+.idea[data-c="amber"].focused  { border-color:var(--amber);  box-shadow:0 0 0 1px var(--amber),0 0 24px rgba(245,158,11,0.35); }
+.idea[data-c="pink"].focused   { border-color:var(--pink);   box-shadow:0 0 0 1px var(--pink),0 0 24px rgba(236,72,153,0.35); }
+
+.idea[data-c="purple"] { border-color: rgba(123,108,246,0.4); }
+.idea[data-c="cyan"]   { border-color: rgba(6,182,212,0.4); }
+.idea[data-c="green"]  { border-color: rgba(16,185,129,0.4); }
+.idea[data-c="amber"]  { border-color: rgba(245,158,11,0.4); }
+.idea[data-c="pink"]   { border-color: rgba(236,72,153,0.4); }
+
+.idea-num {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  margin-bottom: 6px;
+  opacity: 0.8;
+}
+.idea[data-c="purple"] .idea-num { color:var(--purple); }
+.idea[data-c="cyan"]   .idea-num { color:var(--cyan); }
+.idea[data-c="green"]  .idea-num { color:var(--green); }
+.idea[data-c="amber"]  .idea-num { color:var(--amber); }
+.idea[data-c="pink"]   .idea-num { color:var(--pink); }
+
+.idea-body {
+  font-size: 12px;
+  color: var(--text);
+  line-height: 1.6;
+  word-break: break-word;
+  white-space: pre-wrap;
+  min-height: 18px;
+}
+.idea-body.empty { color: rgba(255,255,255,0.2); font-style: italic; }
+.idea-ta {
+  background: transparent;
+  border: none;
+  outline: none;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--text);
+  line-height: 1.6;
+  resize: none;
+  width: 100%;
+  min-height: 50px;
+  caret-color: var(--green);
+}
+
+/* spring-in animation */
+@keyframes springIn {
+  0%   { transform: scale(0.45) translateY(12px); opacity: 0; }
+  65%  { transform: scale(1.04) translateY(-2px); opacity: 1; }
+  100% { transform: scale(1) translateY(0); opacity: 1; }
+}
+.spring-in { animation: springIn 0.32s cubic-bezier(0.34,1.56,0.64,1) forwards; }
+
+@keyframes fadeOut {
+  to { transform: scale(0.7); opacity: 0; }
+}
+.fade-out { animation: fadeOut 0.18s ease forwards; }
+
+/* ─── ZONE ─── */
+.zone {
+  position: absolute;
+  background: rgba(28,28,50,0.45);
+  border: 1.5px dashed #3a3a5c;
+  border-radius: 10px;
+  padding: 10px 12px;
+  cursor: grab;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  min-width: 180px;
+  min-height: 120px;
+}
+.zone:hover { border-color: #5a5a8c; }
+.zone.focused {
+  border-color: var(--cyan);
+  box-shadow: 0 0 0 1px var(--cyan), 0 0 20px rgba(6,182,212,0.2);
+}
+.zone-label-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  pointer-events: none;
+}
+.zone-lbl {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: rgba(6,182,212,0.6);
+  background: rgba(6,182,212,0.08);
+  padding: 2px 7px;
+  border-radius: 3px;
+}
+.zone-resize {
+  position: absolute;
+  bottom: 6px; right: 6px;
+  width: 14px; height: 14px;
+  cursor: nwse-resize;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.zone:hover .zone-resize { opacity: 1; }
+.zone-resize::before, .zone-resize::after {
+  content: '';
+  position: absolute;
+  background: var(--dim);
+  border-radius: 1px;
+}
+.zone-resize::before { width:10px; height:1.5px; bottom:7px; right:0; transform:rotate(-45deg); }
+.zone-resize::after  { width:5px;  height:1.5px; bottom:3px; right:0; transform:rotate(-45deg); }
+
+/* ─── BOOK ─── */
+.book {
+  position: absolute;
+  cursor: grab;
+  min-width: 170px;
+}
+.book-stack {
+  position: relative;
+}
+.book-stack::before {
+  content: '';
+  position: absolute;
+  top: -4px; left: 5px; right: -5px; bottom: 4px;
+  background: #191928;
+  border: 1px solid #2e2e4a;
+  border-radius: 8px;
+  z-index: -1;
+}
+.book-stack::after {
+  content: '';
+  position: absolute;
+  top: -8px; left: 10px; right: -10px; bottom: 8px;
+  background: #141420;
+  border: 1px solid #252538;
+  border-radius: 8px;
+  z-index: -2;
+}
+.book-card {
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  padding: 8px 12px 10px;
+  position: relative;
+  z-index: 1;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.book.focused .book-card {
+  border-color: var(--amber);
+  box-shadow: 0 0 0 1px var(--amber), 0 0 24px rgba(245,158,11,0.3);
+}
+.book-hdr {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 6px;
+}
+.book-icon { font-size: 9px; color: var(--amber); }
+.book-bid  { font-size: 9px; font-weight:700; letter-spacing:1px; color: var(--amber); }
+.book-ttl  { font-size: 11px; color: var(--text); }
+.book-tags { display:flex; gap:4px; flex-wrap:wrap; }
+.btag {
+  background: rgba(245,158,11,0.1);
+  border: 1px solid rgba(245,158,11,0.25);
+  border-radius: 3px;
+  padding: 1px 6px;
+  font-size: 9px;
+  color: var(--amber);
+}
+.book-expanded {
+  margin-top: 10px;
+  border-top: 1px solid #2a2a3e;
+  padding-top: 10px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+  animation: springIn 0.25s ease;
+}
+.book-inner {
+  background: #15151f;
+  border: 1px solid #2a2a3e;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 10px;
+  color: var(--text);
+  line-height: 1.5;
+  pointer-events: none;
+}
+.book-inner-num { font-size: 8px; color: var(--amber); opacity: 0.7; margin-bottom: 3px; }
+
+/* ─── CONNECTOR SVG ─── */
+.conn-path {
+  stroke-dasharray: 2000;
+  stroke-dashoffset: 2000;
+  animation: drawConn 0.45s ease forwards;
+}
+@keyframes drawConn { to { stroke-dashoffset: 0; } }
+
+/* ─── CMD LINE ─── */
+#cmdline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  background: #080810;
+  border-top: 1px solid #1e1e30;
+  flex-shrink: 0;
+  font-size: 11px;
+  min-height: 36px;
+}
+#cmd-prompt { color: var(--purple); font-weight: 700; }
+#cmd-buf { color: var(--text); letter-spacing: 0.5px; }
+#cmd-cur {
+  display: inline-block;
+  width: 7px; height: 13px;
+  background: var(--green);
+  vertical-align: middle;
+  margin-left: 1px;
+  animation: blink 1s step-end infinite;
+}
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+#cmd-stat { margin-left: auto; font-size: 9px; color: var(--dim); letter-spacing: 1px; }
+
+/* ─── PALETTE ─── */
+#palette {
+  position: fixed;
+  bottom: 48px;
+  left: 50%;
+  transform: translateX(-50%) translateY(6px);
+  background: #18182a;
+  border: 1px solid #3a3a5c;
+  border-radius: 12px;
+  padding: 10px 16px;
+  display: none;
+  gap: 10px;
+  align-items: center;
+  z-index: 500;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.6);
+  opacity: 0;
+  transition: opacity 0.15s, transform 0.15s;
+}
+#palette.show {
+  display: flex;
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+.p-lbl { font-size: 9px; letter-spacing:2px; color: var(--dim); text-transform:uppercase; margin-right:2px; }
+.psw {
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: transform 0.12s, border-color 0.12s;
+  position: relative;
+}
+.psw:hover { transform: scale(1.35); border-color: rgba(255,255,255,0.7); }
+.psw-k {
+  position: absolute;
+  bottom: -15px; left: 50%;
+  transform: translateX(-50%);
+  font-size: 8px;
+  color: var(--dim);
+}
+
+/* ─── TOAST ─── */
+.toast {
+  position: fixed;
+  top: 54px; right: 18px;
+  background: #1e1e30;
+  border: 1px solid #3a3a5c;
+  border-radius: 6px;
+  padding: 7px 13px;
+  font-size: 10px;
+  color: var(--text);
+  z-index: 1000;
+  pointer-events: none;
+  animation: toastIn 0.18s ease, toastOut 0.2s ease 1.9s forwards;
+}
+@keyframes toastIn  { from{transform:translateX(16px);opacity:0} to{transform:none;opacity:1} }
+@keyframes toastOut { from{opacity:1} to{opacity:0} }
+
+/* ─── SCROLLBAR ─── */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #3a3a5c; border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div id="header">
+  <div id="mode-badge" class="select">
+    <div id="mode-dot"></div>
+    <span id="mode-txt">SELECT</span>
+  </div>
+  <div id="app-title">IDEA BOARD</div>
+  <div class="hints">
+    <div class="hint"><span class="hk">TAB</span>モード切替</div>
+    <div class="hint"><span class="hk">i</span>アイデア</div>
+    <div class="hint"><span class="hk">z</span>ゾーン</div>
+    <div class="hint"><span class="hk">b</span>ブック</div>
+    <div class="hint"><span class="hk">j</span>接続</div>
+    <div class="hint"><span class="hk">p</span>カラー</div>
+    <div class="hint"><span class="hk">x</span>削除</div>
+    <div class="hint"><span class="hk">Alt+ドラッグ</span>パン</div>
+  </div>
+  <div id="toolbar">
+    <button class="tb-btn" onclick="App.exportJSON()">EXPORT</button>
+    <button class="tb-btn" onclick="document.getElementById('imp').click()">IMPORT</button>
+    <input type="file" id="imp" accept=".json" style="display:none" onchange="App.importJSON(event)">
+  </div>
+</div>
+
+<!-- BOARD -->
+<div id="board-wrap">
+  <div id="board">
+    <div id="zones-layer"></div>
+    <svg id="svg-layer" xmlns="http://www.w3.org/2000/svg">
+      <defs id="svg-defs"></defs>
+    </svg>
+    <div id="objects-layer"></div>
+  </div>
+</div>
+
+<!-- PALETTE -->
+<div id="palette">
+  <span class="p-lbl">COLOR</span>
+  <div class="psw" data-c="purple" style="background:#7b6cf6"><span class="psw-k">1</span></div>
+  <div class="psw" data-c="cyan"   style="background:#06b6d4"><span class="psw-k">2</span></div>
+  <div class="psw" data-c="green"  style="background:#10b981"><span class="psw-k">3</span></div>
+  <div class="psw" data-c="amber"  style="background:#f59e0b"><span class="psw-k">4</span></div>
+  <div class="psw" data-c="pink"   style="background:#ec4899"><span class="psw-k">5</span></div>
+</div>
+
+<!-- CMD LINE -->
+<div id="cmdline">
+  <span id="cmd-prompt">›</span>
+  <span id="cmd-buf"></span><span id="cmd-cur"></span>
+  <span id="cmd-stat">0 ideas</span>
+</div>
+
+<script>
+const App = (() => {
+  // ─── STATE ───────────────────────────────────────────────────────────
+  const S = {
+    mode: 'select',
+    ideas: {},       // id(num) -> { id, x, y, text, color }
+    connectors: [],  // { id, from, to, type:'line'|'arrow' }
+    zones: [],       // { id, x, y, w, h, label }
+    books: [],       // { id, x, y, title, children:[], expanded }
+    nextId: 1,
+    focused: null,   // { kind:'idea'|'zone'|'book', id }
+    lastFocused: null,
+    pan: { x: 280, y: 180 },
+    zoom: 1,
+    cmdBuf: '',
+    cmdMode: null,   // null | 'j' | 'b' | 'palette'
+    panning: false,
+    panOrigin: null,
+  };
+
+  const COLOR_HEX = {
+    purple:'#7b6cf6', cyan:'#06b6d4', green:'#10b981', amber:'#f59e0b', pink:'#ec4899'
+  };
+  const COLOR_KEYS = { '1':'purple','2':'cyan','3':'green','4':'amber','5':'pink' };
+
+  // ─── DOM ─────────────────────────────────────────────────────────────
+  const boardWrap   = document.getElementById('board-wrap');
+  const board       = document.getElementById('board');
+  const zonesLayer  = document.getElementById('zones-layer');
+  const svgLayer    = document.getElementById('svg-layer');
+  const objLayer    = document.getElementById('objects-layer');
+  const svgDefs     = document.getElementById('svg-defs');
+  const modeBadge   = document.getElementById('mode-badge');
+  const modeTxt     = document.getElementById('mode-txt');
+  const cmdBufEl    = document.getElementById('cmd-buf');
+  const cmdStat     = document.getElementById('cmd-stat');
+  const palette     = document.getElementById('palette');
+
+  // ─── TRANSFORM ───────────────────────────────────────────────────────
+  function applyXform() {
+    board.style.transform = `translate(${S.pan.x}px,${S.pan.y}px) scale(${S.zoom})`;
+  }
+
+  // ─── MODE ─────────────────────────────────────────────────────────────
+  function setMode(m) {
+    S.mode = m;
+    modeBadge.className = m;
+    modeTxt.textContent = m.toUpperCase();
+    if (m === 'select') {
+      document.querySelectorAll('.idea-ta').forEach(t => t.blur());
+      closePalette();
+    }
+    updateCmd();
+  }
+
+  // ─── FOCUS ───────────────────────────────────────────────────────────
+  function focus(kind, id) {
+    clearFocus();
+    S.focused = { kind, id };
+    S.lastFocused = { kind, id };
+    const el = getEl(kind, id);
+    if (el) el.classList.add('focused');
+    updateCmd();
+  }
+
+  function clearFocus() {
+    document.querySelectorAll('.focused').forEach(e => e.classList.remove('focused'));
+    S.focused = null;
+    updateCmd();
+  }
+
+  function getEl(kind, id) {
+    if (kind === 'idea') return document.getElementById(`idea-${id}`);
+    if (kind === 'zone') return document.getElementById(`zone-${id}`);
+    if (kind === 'book') return document.getElementById(`book-${id}`);
+    return null;
+  }
+
+  // ─── UTILS ───────────────────────────────────────────────────────────
+  function esc(s) {
+    return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  function toast(msg) {
+    document.querySelectorAll('.toast').forEach(t => t.remove());
+    const t = document.createElement('div');
+    t.className = 'toast';
+    t.textContent = msg;
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), 2200);
+  }
+
+  function centerPos() {
+    const r = boardWrap.getBoundingClientRect();
+    return {
+      x: (r.width/2 - S.pan.x) / S.zoom - 90 + (Math.random()-0.5)*80,
+      y: (r.height/2 - S.pan.y) / S.zoom - 45 + (Math.random()-0.5)*60
+    };
+  }
+
+  // ─── IDEA ─────────────────────────────────────────────────────────────
+  function createIdea() {
+    const pos = centerPos();
+    const id = S.nextId++;
+    S.ideas[id] = { id, x: pos.x, y: pos.y, text: '', color: 'purple' };
+    renderIdea(id, true);
+    focus('idea', id);
+    setMode('edit');
+    startEdit(id);
+    save();
+    updateStat();
+  }
+
+  function renderIdea(id, animate) {
+    const obj = S.ideas[id];
+    if (!obj) return;
+    let el = document.getElementById(`idea-${id}`);
+    const isNew = !el;
+    if (isNew) {
+      el = document.createElement('div');
+      el.id = `idea-${id}`;
+      el.className = 'idea';
+      objLayer.appendChild(el);
+      makeDraggable(el, () => S.ideas[id], (o,x,y) => { o.x=x; o.y=y; });
+      el.addEventListener('click', e => { e.stopPropagation(); if(S.mode==='select') focus('idea',id); });
+      el.addEventListener('dblclick', e => { e.stopPropagation(); focus('idea',id); setMode('edit'); startEdit(id); });
+    }
+    el.setAttribute('data-c', obj.color || 'purple');
+    el.style.left = obj.x + 'px';
+    el.style.top  = obj.y + 'px';
+    el.innerHTML = `
+      <div class="idea-num">#${id}</div>
+      <div class="idea-body${obj.text?'':' empty'}">${obj.text ? esc(obj.text) : 'アイデアを入力...'}</div>`;
+    if (animate) el.classList.add('spring-in');
+  }
+
+  function startEdit(id) {
+    const obj = S.ideas[id];
+    if (!obj) return;
+    const el = document.getElementById(`idea-${id}`);
+    if (!el) return;
+    el.innerHTML = `
+      <div class="idea-num">#${id}</div>
+      <textarea class="idea-ta" placeholder="アイデアを入力...">${esc(obj.text||'')}</textarea>`;
+    const ta = el.querySelector('textarea');
+    ta.focus();
+    const len = ta.value.length;
+    ta.setSelectionRange(len, len);
+    ta.addEventListener('input', () => { obj.text = ta.value; save(); });
+    ta.addEventListener('keydown', e => {
+      if (e.key==='Escape' || (e.key==='Tab' && !e.shiftKey)) {
+        e.preventDefault();
+        obj.text = ta.value;
+        setMode('select');
+        renderIdea(id);
+        focus('idea', id);
+      }
+    });
+  }
+
+  // ─── ZONE ─────────────────────────────────────────────────────────────
+  function createZone() {
+    const pos = centerPos();
+    const id = `z${S.nextId++}`;
+    S.zones.push({ id, x: pos.x-100, y: pos.y-70, w: 280, h: 180, label: 'ZONE' });
+    renderZone(id, true);
+    focus('zone', id);
+    save();
+    updateStat();
+    toast('ゾーンを生成 — ダブルクリックでラベル編集');
+  }
+
+  function renderZone(id, animate) {
+    const z = S.zones.find(z=>z.id===id);
+    if (!z) return;
+    let el = document.getElementById(`zone-${id}`);
+    const isNew = !el;
+    if (isNew) {
+      el = document.createElement('div');
+      el.id = `zone-${id}`;
+      el.className = 'zone';
+      zonesLayer.appendChild(el);
+      makeDraggable(el, () => z, (o,x,y) => { o.x=x; o.y=y; }, '.zone-resize');
+      el.addEventListener('click', e => { e.stopPropagation(); if(S.mode==='select') focus('zone',id); });
+      el.addEventListener('dblclick', e => {
+        e.stopPropagation();
+        const lbl = prompt('ゾーンのラベル:', z.label);
+        if (lbl !== null) { z.label = lbl; renderZone(id); save(); }
+      });
+    }
+    el.style.left   = z.x + 'px';
+    el.style.top    = z.y + 'px';
+    el.style.width  = z.w + 'px';
+    el.style.height = z.h + 'px';
+    el.innerHTML = `<div class="zone-label-wrap"><div class="zone-lbl">${esc(z.label)}</div></div><div class="zone-resize"></div>`;
+    makeResizable(el.querySelector('.zone-resize'), z);
+    if (animate) el.classList.add('spring-in');
+  }
+
+  // ─── BOOK ─────────────────────────────────────────────────────────────
+  function createBook(childIds) {
+    const pos = centerPos();
+    const id = `bk${S.nextId++}`;
+    S.books.push({ id, x: pos.x-85, y: pos.y-50, title: 'BOOK', children: childIds, expanded: false });
+    renderBook(id, true);
+    focus('book', id);
+    save();
+    updateStat();
+  }
+
+  function renderBook(id, animate) {
+    const bk = S.books.find(b=>b.id===id);
+    if (!bk) return;
+    let el = document.getElementById(`book-${id}`);
+    const isNew = !el;
+    if (isNew) {
+      el = document.createElement('div');
+      el.id = `book-${id}`;
+      el.className = 'book';
+      objLayer.appendChild(el);
+      makeDraggable(el, () => bk, (o,x,y) => { o.x=x; o.y=y; });
+      el.addEventListener('click', e => { e.stopPropagation(); if(S.mode==='select') focus('book',id); });
+      el.addEventListener('dblclick', e => { e.stopPropagation(); bk.expanded=!bk.expanded; renderBook(id); });
+    }
+    el.style.left = bk.x + 'px';
+    el.style.top  = bk.y + 'px';
+    const tags = bk.children.map(c => `<span class="btag">#${c}</span>`).join('');
+    const exp = bk.expanded ? `<div class="book-expanded">${
+      bk.children.map(c => {
+        const o = S.ideas[c];
+        return `<div class="book-inner"><div class="book-inner-num">#${c}</div>${esc(o?o.text:'')}</div>`;
+      }).join('')
+    }</div>` : '';
+    el.innerHTML = `<div class="book-stack"><div class="book-card">
+      <div class="book-hdr">
+        <span class="book-icon">${bk.expanded?'▼':'▶'}</span>
+        <span class="book-bid">${id}</span>
+        <span class="book-ttl">${esc(bk.title)}</span>
+      </div>
+      <div class="book-tags">${tags}</div>
+      ${exp}
+    </div></div>`;
+    if (animate) el.classList.add('spring-in');
+  }
+
+  // ─── CONNECTORS ───────────────────────────────────────────────────────
+  function buildConnector(fromId, toId, type) {
+    if (!S.ideas[fromId] || !S.ideas[toId]) {
+      toast(`アイデア #${fromId} または #${toId} が見つかりません`);
+      return;
+    }
+    // Prevent duplicate
+    const dup = S.connectors.find(c =>
+      (c.from===fromId && c.to===toId) || (type==='line' && c.from===toId && c.to===fromId));
+    if (dup) { toast('既に接続済みです'); return; }
+    const id = `c${S.nextId++}`;
+    S.connectors.push({ id, from: fromId, to: toId, type });
+    redrawConnectors();
+    save();
+    toast(`#${fromId} ${type==='arrow'?'→':'—'} #${toId}`);
+  }
+
+  function ideaCenter(id) {
+    const el = document.getElementById(`idea-${id}`);
+    if (!el) return null;
+    return {
+      x: parseFloat(el.style.left) + el.offsetWidth/2,
+      y: parseFloat(el.style.top)  + el.offsetHeight/2
+    };
+  }
+
+  function redrawConnectors() {
+    // Clear old paths (not defs)
+    svgLayer.querySelectorAll('.conn-g').forEach(e => e.remove());
+
+    // Rebuild arrowhead markers in defs
+    svgDefs.innerHTML = '';
+    Object.entries(COLOR_HEX).forEach(([name, hex]) => {
+      const mk = document.createElementNS('http://www.w3.org/2000/svg','marker');
+      mk.setAttribute('id', `arr-${name}`);
+      mk.setAttribute('markerWidth','8'); mk.setAttribute('markerHeight','6');
+      mk.setAttribute('refX','7'); mk.setAttribute('refY','3');
+      mk.setAttribute('orient','auto');
+      const p = document.createElementNS('http://www.w3.org/2000/svg','path');
+      p.setAttribute('d','M0,0 L0,6 L8,3 z');
+      p.setAttribute('fill', hex);
+      mk.appendChild(p);
+      svgDefs.appendChild(mk);
+    });
+
+    S.connectors.forEach(conn => {
+      const a = ideaCenter(conn.from);
+      const b = ideaCenter(conn.to);
+      if (!a || !b) return;
+
+      const color = (S.ideas[conn.from]||{}).color || 'purple';
+      const hex = COLOR_HEX[color];
+
+      const g = document.createElementNS('http://www.w3.org/2000/svg','g');
+      g.classList.add('conn-g');
+
+      const dx = b.x-a.x, dy = b.y-a.y;
+      const cpx1 = a.x + dx*0.35, cpy1 = a.y;
+      const cpx2 = a.x + dx*0.65, cpy2 = b.y;
+      const d = `M${a.x},${a.y} C${cpx1},${cpy1} ${cpx2},${cpy2} ${b.x},${b.y}`;
+
+      // Glow path
+      const glow = document.createElementNS('http://www.w3.org/2000/svg','path');
+      glow.setAttribute('d', d);
+      glow.setAttribute('fill','none');
+      glow.setAttribute('stroke', hex);
+      glow.setAttribute('stroke-width','6');
+      glow.setAttribute('opacity','0.08');
+      g.appendChild(glow);
+
+      // Main path
+      const path = document.createElementNS('http://www.w3.org/2000/svg','path');
+      path.setAttribute('d', d);
+      path.setAttribute('fill','none');
+      path.setAttribute('stroke', hex);
+      path.setAttribute('stroke-width','1.5');
+      path.setAttribute('opacity','0.75');
+      path.classList.add('conn-path');
+      if (conn.type === 'arrow') {
+        path.setAttribute('marker-end', `url(#arr-${color})`);
+      } else {
+        path.setAttribute('stroke-dasharray','5 3');
+        path.style.animation = 'none';
+        path.style.strokeDashoffset = '0';
+      }
+      g.appendChild(path);
+      svgLayer.appendChild(g);
+    });
+  }
+
+  // ─── DRAG ─────────────────────────────────────────────────────────────
+  function makeDraggable(el, getObj, setPos, excludeSel) {
+    el.addEventListener('mousedown', e => {
+      if (e.target.tagName === 'TEXTAREA') return;
+      if (excludeSel && e.target.closest(excludeSel)) return;
+      if (e.button !== 0) return;
+      e.stopPropagation();
+      const obj = getObj();
+      if (!obj) return;
+      const sx = e.clientX, sy = e.clientY;
+      const ox = obj.x, oy = obj.y;
+      el.style.zIndex = 99;
+      el.style.transition = 'none';
+
+      const onMove = e => {
+        const dx = (e.clientX-sx)/S.zoom;
+        const dy = (e.clientY-sy)/S.zoom;
+        setPos(obj, ox+dx, oy+dy);
+        el.style.left = obj.x + 'px';
+        el.style.top  = obj.y + 'px';
+        redrawConnectors();
+      };
+      const onUp = () => {
+        el.style.zIndex = '';
+        el.style.transition = '';
+        save();
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+  }
+
+  function makeResizable(handle, zone) {
+    handle.addEventListener('mousedown', e => {
+      e.stopPropagation();
+      const sx=e.clientX, sy=e.clientY, sw=zone.w, sh=zone.h;
+      const onMove = e => {
+        zone.w = Math.max(120, sw+(e.clientX-sx)/S.zoom);
+        zone.h = Math.max(80,  sh+(e.clientY-sy)/S.zoom);
+        const el = document.getElementById(`zone-${zone.id}`);
+        if (el) { el.style.width=zone.w+'px'; el.style.height=zone.h+'px'; }
+      };
+      const onUp = () => { save(); document.removeEventListener('mousemove',onMove); document.removeEventListener('mouseup',onUp); };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+  }
+
+  // ─── PAN / ZOOM ───────────────────────────────────────────────────────
+  boardWrap.addEventListener('mousedown', e => {
+    if (e.button===1 || (e.button===0 && e.altKey)) {
+      e.preventDefault();
+      S.panning = true;
+      S.panOrigin = { x: e.clientX-S.pan.x, y: e.clientY-S.pan.y };
+      boardWrap.classList.add('panning');
+    }
+  });
+  document.addEventListener('mousemove', e => {
+    if (!S.panning) return;
+    S.pan.x = e.clientX - S.panOrigin.x;
+    S.pan.y = e.clientY - S.panOrigin.y;
+    applyXform();
+  });
+  document.addEventListener('mouseup', () => {
+    if (S.panning) { S.panning = false; boardWrap.classList.remove('panning'); }
+  });
+  boardWrap.addEventListener('wheel', e => {
+    e.preventDefault();
+    const dz = e.deltaY > 0 ? 0.9 : 1.1;
+    const nz = Math.max(0.25, Math.min(2.5, S.zoom*dz));
+    const r  = boardWrap.getBoundingClientRect();
+    const mx = e.clientX - r.left, my = e.clientY - r.top;
+    S.pan.x = mx - (mx-S.pan.x)*(nz/S.zoom);
+    S.pan.y = my - (my-S.pan.y)*(nz/S.zoom);
+    S.zoom = nz;
+    applyXform();
+  }, { passive: false });
+
+  // Click on bg → deselect
+  boardWrap.addEventListener('click', e => {
+    if (e.target===boardWrap || e.target===board || e.target===objLayer || e.target===zonesLayer) {
+      clearFocus();
+    }
+  });
+
+  // ─── KEYBOARD ─────────────────────────────────────────────────────────
+  document.addEventListener('keydown', e => {
+    // Tab always toggles mode
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      if (S.mode === 'select') {
+        setMode('edit');
+        if (S.focused?.kind === 'idea') startEdit(S.focused.id);
+      } else {
+        const fid = S.focused?.id;
+        setMode('select');
+        if (fid && S.ideas[fid]) { renderIdea(fid); focus('idea', fid); }
+      }
+      return;
+    }
+
+    if (S.mode === 'edit') return;
+
+    if (e.key === 'Escape') {
+      closePalette();
+      S.cmdBuf = ''; S.cmdMode = null;
+      updateCmd();
+      return;
+    }
+
+    // Palette input
+    if (S.cmdMode === 'palette') { handlePaletteKey(e.key); return; }
+
+    // j command accumulation
+    if (S.cmdMode === 'j') {
+      if (e.key === 'Escape') { S.cmdBuf=''; S.cmdMode=null; updateCmd(); return; }
+      S.cmdBuf += e.key;
+      updateCmd();
+      tryJoint();
+      return;
+    }
+
+    // b command accumulation
+    if (S.cmdMode === 'b') {
+      if (e.key === 'Escape') { S.cmdBuf=''; S.cmdMode=null; updateCmd(); return; }
+      if (e.key === 'Enter') { execBook(); return; }
+      if (/^\d$/.test(e.key)) {
+        S.cmdBuf += e.key;
+        updateCmd();
+      }
+      return;
+    }
+
+    // Single-key commands
+    switch (e.key) {
+      case 'i': e.preventDefault(); createIdea(); break;
+      case 'z': e.preventDefault(); createZone(); break;
+      case 'b':
+        e.preventDefault();
+        S.cmdMode = 'b'; S.cmdBuf = 'b';
+        updateCmd();
+        toast('ブック: b + 数字キー(ID) + Enter — 例: b123 → #1,#2,#3を含むブック');
+        break;
+      case 'j':
+        e.preventDefault();
+        S.cmdMode = 'j'; S.cmdBuf = 'j';
+        updateCmd();
+        break;
+      case 'p': e.preventDefault(); openPalette(); break;
+      case 'x': case 'Delete': e.preventDefault(); deleteSelected(); break;
+      case 'Enter':
+        if (S.focused?.kind === 'idea') { setMode('edit'); startEdit(S.focused.id); }
+        if (S.focused?.kind === 'book') {
+          const bk = S.books.find(b=>b.id===S.focused.id);
+          if (bk) { bk.expanded=!bk.expanded; renderBook(bk.id); }
+        }
+        break;
+      case 'ArrowLeft': case 'ArrowRight': case 'ArrowUp': case 'ArrowDown':
+        e.preventDefault(); navigateFocus(e.key); break;
+    }
+  });
+
+  function tryJoint() {
+    const m = S.cmdBuf.match(/^j(\d+)([+\-])(\d+)$/);
+    if (m) {
+      const type = m[2]==='-' ? 'arrow' : 'line';
+      buildConnector(+m[1], +m[3], type);
+      S.cmdBuf=''; S.cmdMode=null; updateCmd();
+    }
+  }
+
+  function execBook() {
+    const digits = S.cmdBuf.slice(1).split('').map(Number);
+    if (digits.length === 0) { toast('IDを入力してください'); S.cmdBuf=''; S.cmdMode=null; updateCmd(); return; }
+    const valid = digits.filter(d => S.ideas[d]);
+    if (valid.length === 0) { toast('有効なアイデアIDが見つかりません'); S.cmdBuf=''; S.cmdMode=null; updateCmd(); return; }
+    createBook(valid);
+    S.cmdBuf=''; S.cmdMode=null; updateCmd();
+  }
+
+  // ─── NAVIGATION ───────────────────────────────────────────────────────
+  function navigateFocus(key) {
+    const ids = Object.keys(S.ideas).map(Number);
+    if (!ids.length) return;
+    if (!S.focused || S.focused.kind !== 'idea' || !S.ideas[S.focused.id]) {
+      focus('idea', ids[0]); return;
+    }
+    const cur = S.ideas[S.focused.id];
+    let best=null, bestD=Infinity;
+    ids.forEach(id => {
+      if (id===S.focused.id) return;
+      const o = S.ideas[id];
+      const dx=o.x-cur.x, dy=o.y-cur.y;
+      let ok = false;
+      if (key==='ArrowRight' && dx>30 && Math.abs(dy)<Math.abs(dx)) ok=true;
+      if (key==='ArrowLeft'  && dx<-30 && Math.abs(dy)<Math.abs(dx)) ok=true;
+      if (key==='ArrowDown'  && dy>30 && Math.abs(dx)<Math.abs(dy)) ok=true;
+      if (key==='ArrowUp'    && dy<-30 && Math.abs(dx)<Math.abs(dy)) ok=true;
+      if (ok) { const d=Math.hypot(dx,dy); if(d<bestD){bestD=d;best=id;} }
+    });
+    if (best!==null) focus('idea',best);
+  }
+
+  // ─── PALETTE ─────────────────────────────────────────────────────────
+  function openPalette() {
+    if (!S.lastFocused) { toast('先にオブジェクトを選択してください'); return; }
+    S.cmdMode = 'palette';
+    palette.classList.add('show');
+    updateCmd();
+  }
+  function closePalette() {
+    palette.classList.remove('show');
+    if (S.cmdMode==='palette') { S.cmdMode=null; }
+  }
+  function handlePaletteKey(key) {
+    const c = COLOR_KEYS[key];
+    if (c) applyColor(c);
+    closePalette(); updateCmd();
+  }
+  function applyColor(color) {
+    const lf = S.lastFocused;
+    if (!lf) return;
+    if (lf.kind==='idea' && S.ideas[lf.id]) {
+      S.ideas[lf.id].color = color;
+      renderIdea(lf.id);
+      focus('idea', lf.id);
+      redrawConnectors();
+      save();
+    }
+  }
+  document.querySelectorAll('.psw').forEach(sw => {
+    sw.addEventListener('click', () => { applyColor(sw.dataset.c); closePalette(); });
+  });
+
+  // ─── DELETE ───────────────────────────────────────────────────────────
+  function deleteSelected() {
+    if (!S.focused) return;
+    const { kind, id } = S.focused;
+    if (kind === 'idea') {
+      const el = document.getElementById(`idea-${id}`);
+      if (el) { el.classList.add('fade-out'); setTimeout(()=>el.remove(),200); }
+      delete S.ideas[id];
+      S.connectors = S.connectors.filter(c=>c.from!==id&&c.to!==id);
+      S.books.forEach(b=>{ b.children=b.children.filter(c=>c!==id); });
+      redrawConnectors();
+    } else if (kind === 'zone') {
+      const el = document.getElementById(`zone-${id}`);
+      if (el) { el.classList.add('fade-out'); setTimeout(()=>el.remove(),200); }
+      S.zones = S.zones.filter(z=>z.id!==id);
+    } else if (kind === 'book') {
+      const el = document.getElementById(`book-${id}`);
+      if (el) { el.classList.add('fade-out'); setTimeout(()=>el.remove(),200); }
+      S.books = S.books.filter(b=>b.id!==id);
+    }
+    S.focused = null;
+    save(); updateStat(); updateCmd();
+  }
+
+  // ─── CMD / STATUS ────────────────────────────────────────────────────
+  function updateCmd() {
+    let txt = '';
+    if (S.cmdBuf) {
+      txt = S.cmdBuf;
+    } else if (S.cmdMode==='palette') {
+      txt = 'COLOR: 1紫  2シアン  3緑  4琥珀  5ピンク';
+    } else if (S.focused) {
+      const {kind,id} = S.focused;
+      txt = `${kind} ${id} — selected`;
+    } else if (S.mode==='edit') {
+      txt = 'EDIT — Esc / Tab で SELECT へ';
+    }
+    cmdBufEl.textContent = txt;
+  }
+
+  function updateStat() {
+    const ni=Object.keys(S.ideas).length, nc=S.connectors.length, nz=S.zones.length, nb=S.books.length;
+    let s = `${ni} idea${ni!==1?'s':''}`;
+    if (nc) s += ` · ${nc} conn`;
+    if (nz) s += ` · ${nz} zone${nz!==1?'s':''}`;
+    if (nb) s += ` · ${nb} book${nb!==1?'s':''}`;
+    cmdStat.textContent = s;
+  }
+
+  // ─── PERSIST ─────────────────────────────────────────────────────────
+  let saveTimer;
+  function save() {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      try {
+        localStorage.setItem('ideaboard_v2', JSON.stringify({
+          ideas: S.ideas, connectors: S.connectors,
+          zones: S.zones, books: S.books,
+          nextId: S.nextId, pan: S.pan, zoom: S.zoom
+        }));
+      } catch(e) {}
+    }, 400);
+  }
+
+  function loadSaved() {
+    try {
+      const raw = localStorage.getItem('ideaboard_v2');
+      if (!raw) return false;
+      const d = JSON.parse(raw);
+      Object.assign(S, {
+        ideas: d.ideas||{}, connectors: d.connectors||[],
+        zones: d.zones||[], books: d.books||[],
+        nextId: d.nextId||1,
+        pan: d.pan||S.pan, zoom: d.zoom||1
+      });
+      // Convert string keys to numbers for ideas
+      const fixed = {};
+      Object.entries(S.ideas).forEach(([k,v])=>{ fixed[+k]=v; v.id=+v.id; });
+      S.ideas = fixed;
+      return true;
+    } catch(e) { return false; }
+  }
+
+  function renderAll() {
+    objLayer.innerHTML = '';
+    zonesLayer.innerHTML = '';
+    S.zones.forEach(z => renderZone(z.id));
+    Object.values(S.ideas).forEach(o => renderIdea(o.id));
+    S.books.forEach(b => renderBook(b.id));
+    redrawConnectors();
+    applyXform();
+    updateStat();
+  }
+
+  // ─── EXPORT / IMPORT ─────────────────────────────────────────────────
+  function exportJSON() {
+    const data = {
+      ideas: S.ideas, connectors: S.connectors,
+      zones: S.zones, books: S.books, nextId: S.nextId,
+      meta: { exported: new Date().toISOString(), version: 2 }
+    };
+    const blob = new Blob([JSON.stringify(data,null,2)], {type:'application/json'});
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url; a.download = `ideaboard-${Date.now()}.json`;
+    a.click(); URL.revokeObjectURL(url);
+    toast('JSONをエクスポートしました');
+  }
+
+  function importJSON(ev) {
+    const file = ev.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = e => {
+      try {
+        const d = JSON.parse(e.target.result);
+        Object.assign(S, {
+          ideas: d.ideas||{}, connectors: d.connectors||[],
+          zones: d.zones||[], books: d.books||[], nextId: d.nextId||1
+        });
+        const fixed = {};
+        Object.entries(S.ideas).forEach(([k,v])=>{ fixed[+k]=v; v.id=+v.id; });
+        S.ideas = fixed;
+        renderAll(); save();
+        toast('インポートしました');
+      } catch(ex) { toast('インポートに失敗しました'); }
+    };
+    reader.readAsText(file);
+    ev.target.value = '';
+  }
+
+  // ─── INIT ─────────────────────────────────────────────────────────────
+  (function init() {
+    const hasSaved = loadSaved();
+    renderAll();
+    if (!hasSaved) toast('TAB → i でアイデアを作成  /  Alt+ドラッグ でパン');
+  })();
+
+  return { exportJSON, importJSON };
+})();
+</script>
+</body>
+</html>
