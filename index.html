@@ -135,22 +135,12 @@ body {
 /* ─── IDEA ─── */
 .idea {
   position:absolute;min-width:150px;max-width:280px;
-  background:var(--card);border:1px solid var(--card-border);
+  background:var(--card);border:2px solid var(--card-border);
   border-radius:8px;padding:8px 12px 12px;cursor:grab;
-  transition:border-color .2s,box-shadow .2s,transform .15s;
+  transition:box-shadow .2s,transform .2s;
 }
-.idea:hover { border-color:var(--dim); }
+/* border-color/width is set via inline style in JS — CSS only handles focus glow */
 .idea.focused { transform:translateY(-2px); }
-.idea[data-c="purple"]         { border:2px solid rgba(123,108,246,.75); }
-.idea[data-c="purple"].focused { border-color:var(--purple);box-shadow:0 0 0 1px var(--purple),0 0 24px rgba(123,108,246,.35); }
-.idea[data-c="cyan"]           { border:2px solid rgba(6,182,212,.75); }
-.idea[data-c="cyan"].focused   { border-color:var(--cyan);  box-shadow:0 0 0 1px var(--cyan),0 0 24px rgba(6,182,212,.35); }
-.idea[data-c="green"]          { border:2px solid rgba(16,185,129,.75); }
-.idea[data-c="green"].focused  { border-color:var(--green); box-shadow:0 0 0 1px var(--green),0 0 24px rgba(16,185,129,.35); }
-.idea[data-c="amber"]          { border:2px solid rgba(245,158,11,.75); }
-.idea[data-c="amber"].focused  { border-color:var(--amber); box-shadow:0 0 0 1px var(--amber),0 0 24px rgba(245,158,11,.35); }
-.idea[data-c="pink"]           { border:2px solid rgba(236,72,153,.75); }
-.idea[data-c="pink"].focused   { border-color:var(--pink);  box-shadow:0 0 0 1px var(--pink),0 0 24px rgba(236,72,153,.35); }
 
 .idea-num { font-size:9px;font-weight:700;letter-spacing:1px;margin-bottom:5px;opacity:.8; }
 .idea[data-c="purple"] .idea-num { color:var(--purple); }
@@ -200,15 +190,14 @@ body {
   color:var(--cyan);padding:1px 5px;width:120px;caret-color:var(--cyan);
 }
 .zone-resize-handle {
-  position:absolute;bottom:4px;right:4px;width:16px;height:16px;
-  cursor:nwse-resize;opacity:.5;transition:opacity .2s;
+  position:absolute;bottom:0;right:0;width:22px;height:22px;
+  cursor:nwse-resize;pointer-events:all;
+  border-radius:0 0 10px 0;
+  background:linear-gradient(135deg,transparent 40%,rgba(6,182,212,.25) 40%);
+  transition:background .2s;
 }
-.zone:hover .zone-resize-handle,.zone.focused .zone-resize-handle { opacity:1; }
-.zone-resize-handle::before,.zone-resize-handle::after {
-  content:'';position:absolute;background:var(--dim);border-radius:1px;
-}
-.zone-resize-handle::before { width:10px;height:1.5px;bottom:7px;right:1px;transform:rotate(-45deg); }
-.zone-resize-handle::after  { width:5px; height:1.5px;bottom:3px;right:1px;transform:rotate(-45deg); }
+.zone:hover .zone-resize-handle { background:linear-gradient(135deg,transparent 40%,rgba(6,182,212,.5) 40%); }
+.zone.focused .zone-resize-handle { background:linear-gradient(135deg,transparent 40%,rgba(6,182,212,.7) 40%); }
 
 /* ─── BOOK ─── */
 .book { position:absolute;cursor:grab;min-width:170px; }
@@ -324,10 +313,11 @@ body {
     <div class="hint"><span class="hk">z</span>ゾーン</div>
     <div class="hint"><span class="hk">b#+#</span>ブック</div>
     <div class="hint"><span class="hk">j#±#</span>接続</div>
-    <div class="hint"><span class="hk">n#</span>選択</div>
+    <div class="hint"><span class="hk">s#</span>選択</div>
     <div class="hint"><span class="hk">m#+##</span>移動</div>
+    <div class="hint"><span class="hk">v</span>ビュー</div>
     <div class="hint"><span class="hk">p</span>カラー</div>
-    <div class="hint"><span class="hk">r</span>リサイズ</div>
+    <div class="hint"><span class="hk">u</span>解除</div>
     <div class="hint"><span class="hk">x</span>削除</div>
   </div>
   <div id="toolbar">
@@ -453,16 +443,35 @@ const App = (() => {
   }
 
   // ─── FOCUS ────────────────────────────────────────────────────────────
+  function applyIdeaBorder(el, obj, focused) {
+    const hex = COLOR_HEX[obj.color||'purple'];
+    el.style.borderColor = hex;
+    el.style.borderWidth = '2px';
+    el.style.boxShadow = focused
+      ? `0 0 0 1px ${hex}, 0 0 24px ${hex}55`
+      : '';
+  }
+
   function focus(kind, id) {
     clearFocus();
     S.focused = {kind,id};
     S.lastFocused = {kind,id};
     const el = getEl(kind,id);
-    if (el) el.classList.add('focused');
+    if (el) {
+      el.classList.add('focused');
+      if (kind==='idea' && S.ideas[id]) applyIdeaBorder(el, S.ideas[id], true);
+    }
     updateCmd();
   }
   function clearFocus() {
-    document.querySelectorAll('.focused').forEach(e=>e.classList.remove('focused'));
+    document.querySelectorAll('.focused').forEach(el=>{
+      el.classList.remove('focused');
+      if (el.classList.contains('idea')) {
+        // keep border color, remove glow
+        el.style.boxShadow = '';
+        el.style.transform = '';
+      }
+    });
     S.focused = null;
     updateCmd();
   }
@@ -523,6 +532,10 @@ const App = (() => {
     el.setAttribute('data-c', obj.color||'purple');
     el.style.left = obj.x+'px';
     el.style.top  = obj.y+'px';
+    // Border always set via JS to avoid CSS specificity issues
+    const isFocused = S.focused?.kind==='idea' && S.focused.id===id;
+    applyIdeaBorder(el, obj, isFocused);
+    if (isFocused) el.classList.add('focused');
     el.innerHTML = `
       <div class="idea-num">#${id}</div>
       <div class="idea-body${obj.text?'':' empty'}">${obj.text?esc(obj.text):'アイデアを入力...'}</div>`;
@@ -671,7 +684,12 @@ const App = (() => {
     }
     el.style.left = bk.x+'px'; el.style.top = bk.y+'px';
     const numPart = id.replace('bk','');
-    const tags = bk.children.map(c=>`<span class="btag">#${c}</span>`).join('');
+    // First child's text becomes the book title
+    const firstChild = bk.children[0] ? S.ideas[bk.children[0]] : null;
+    const titleText = firstChild?.text
+      ? esc(firstChild.text.split('\n')[0].slice(0,40)) + (firstChild.text.length>40?'…':'')
+      : `BOOK #${numPart}`;
+    const restTags = bk.children.slice(1).map(c=>`<span class="btag">#${c}</span>`).join('');
     const exp = bk.expanded ? `<div class="book-expanded">${
       bk.children.map(c=>{
         const o=S.ideas[c];
@@ -681,9 +699,10 @@ const App = (() => {
     el.innerHTML = `<div class="book-stack"><div class="book-card">
       <div class="book-hdr">
         <span class="book-icon">${bk.expanded?'▼':'▶'}</span>
-        <span class="book-bid">BOOK #${numPart}</span>
+        <span class="book-bid">BK#${numPart}</span>
+        <span class="book-ttl" style="font-size:11px;color:var(--text);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${titleText}</span>
       </div>
-      <div class="book-tags">${tags}</div>
+      <div class="book-tags">${restTags}</div>
       ${exp}
     </div></div>`;
     if (animate) { el.classList.add('spring-in'); setTimeout(()=>el.classList.remove('spring-in'),400); }
@@ -699,7 +718,12 @@ const App = (() => {
       toast('ブック内のアイデアは直接接続できません'); return;
     }
     const dup = S.connectors.find(c=>(c.from===fromId&&c.to===toId)||(type==='line'&&c.from===toId&&c.to===fromId));
-    if (dup) { toast('既に接続済みです'); return; }
+    if (dup) {
+      S.connectors = S.connectors.filter(c=>c.id!==dup.id);
+      redrawConnectors(); save();
+      toast(`#${fromId} — #${toId} の接続を削除`);
+      return;
+    }
     const id = `c${S.nextId++}`;
     S.connectors.push({id, from:fromId, to:toId, type});
     redrawConnectors();
@@ -883,10 +907,16 @@ const App = (() => {
       if (/^\d$/.test(e.key)||e.key==='+'){ S.cmdBuf+=e.key;updateCmd(); }
       return;
     }
-    if (S.cmdMode==='n') {
+    if (S.cmdMode==='s') {
       if (e.key==='Escape'){ S.cmdBuf='';S.cmdMode=null;updateCmd();return; }
       if (/^\d$/.test(e.key)){ S.cmdBuf+=e.key;updateCmd(); }
       if (e.key==='Enter'&&S.cmdBuf.length>1){ execSelect();return; }
+      return;
+    }
+    if (S.cmdMode==='v') {
+      if (e.key==='Escape'){ S.cmdBuf='';S.cmdMode=null;updateCmd();return; }
+      if (e.key==='Enter'){ fitAll();S.cmdBuf='';S.cmdMode=null;updateCmd();return; }
+      if (/^[1-9]$/.test(e.key)){ zoomToSection(+e.key);S.cmdBuf='';S.cmdMode=null;updateCmd();return; }
       return;
     }
     if (S.cmdMode==='m') {
@@ -927,9 +957,19 @@ const App = (() => {
         S.cmdMode='j'; S.cmdBuf='j'; updateCmd();
         toast('接続: j[ID][+or-][ID]  例:j1+2=ライン  j2-3=アロー');
         break;
-      case 'n':
+      case 's':
         e.preventDefault();
-        S.cmdMode='n'; S.cmdBuf='n'; updateCmd();
+        S.cmdMode='s'; S.cmdBuf='s'; updateCmd();
+        toast('選択: s[ID] + Enter  例:s3 → #3を選択');
+        break;
+      case 'v':
+        e.preventDefault();
+        S.cmdMode='v'; S.cmdBuf='v'; updateCmd();
+        toast('ビュー: Enter=全体表示  1〜9=テンキー配置でズーム');
+        break;
+      case 'u':
+        e.preventDefault();
+        unbookOrDetach();
         break;
       case 'm':
         e.preventDefault();
@@ -970,6 +1010,71 @@ const App = (() => {
     save();
   }
 
+  // ─── UNBOOK / DETACH ─────────────────────────────────────────────────
+  function unbookOrDetach() {
+    if (!S.focused) return;
+    const {kind,id} = S.focused;
+    if (kind === 'book') {
+      // Dissolve book: release children back to board
+      const bk = S.books.find(b=>b.id===id);
+      if (!bk) return;
+      const el = getEl('book',id);
+      if (el) { el.classList.add('fade-out'); setTimeout(()=>el.remove(),200); }
+      S.books = S.books.filter(b=>b.id!==id);
+      syncIdeaVisibility();
+      S.focused=null; updateStat(); updateCmd(); save();
+      toast('ブックを解除しました — アイデアをボードに戻しました');
+    } else if (kind === 'idea') {
+      // Remove this idea from any book it belongs to
+      let removed=false;
+      S.books.forEach(bk=>{
+        if (bk.children.includes(id)) {
+          bk.children=bk.children.filter(c=>c!==id);
+          renderBook(bk.id);
+          removed=true;
+        }
+      });
+      if (removed) { syncIdeaVisibility(); save(); toast(`#${id} をブックから除外しました`); }
+      else toast('このアイデアはブックに所属していません');
+    }
+  }
+
+  // ─── VIEWPORT ─────────────────────────────────────────────────────────
+  function fitAll() {
+    const all=[];
+    Object.values(S.ideas).forEach(o=>{ const el=getEl('idea',o.id); if(el&&el.style.display!=='none') all.push({x:o.x,y:o.y,w:el.offsetWidth||160,h:el.offsetHeight||80}); });
+    S.zones.forEach(z=>all.push({x:z.x,y:z.y,w:z.w,h:z.h}));
+    S.books.forEach(b=>{ const el=getEl('book',b.id); if(el) all.push({x:b.x,y:b.y,w:el.offsetWidth||180,h:el.offsetHeight||80}); });
+    if(!all.length)return;
+    const pad=60;
+    const minX=Math.min(...all.map(o=>o.x))-pad;
+    const minY=Math.min(...all.map(o=>o.y))-pad;
+    const maxX=Math.max(...all.map(o=>o.x+o.w))+pad;
+    const maxY=Math.max(...all.map(o=>o.y+o.h))+pad;
+    const r=boardWrap.getBoundingClientRect();
+    const nz=Math.min(r.width/(maxX-minX), r.height/(maxY-minY), 1.5);
+    S.zoom=nz;
+    S.pan.x=r.width/2-(minX+(maxX-minX)/2)*nz;
+    S.pan.y=r.height/2-(minY+(maxY-minY)/2)*nz;
+    applyXform(); redrawConnectors();
+    toast('全オブジェクトを表示');
+  }
+
+  function zoomToSection(d) {
+    if(!GRID_POS[d])return;
+    const [col,row]=GRID_POS[d];
+    const r=boardWrap.getBoundingClientRect();
+    // Current section top-left in board space
+    const secW=r.width/S.zoom/3, secH=r.height/S.zoom/3;
+    const secBx=(-S.pan.x/S.zoom)+col*secW;
+    const secBy=(-S.pan.y/S.zoom)+row*secH;
+    const nz=Math.min(S.zoom*3, 2.5);
+    S.pan.x=r.width/2-(secBx+secW/2)*nz;
+    S.pan.y=r.height/2-(secBy+secH/2)*nz;
+    S.zoom=nz;
+    applyXform(); redrawConnectors();
+  }
+
   function moveObjByKey(key) {
     const {kind,id}=S.focused||{};
     const step=10;
@@ -1008,7 +1113,7 @@ const App = (() => {
 
   // ─── SELECT BY NUMBER ─────────────────────────────────────────────────
   function execSelect() {
-    const num=+S.cmdBuf.slice(1);
+    const num=+S.cmdBuf.replace(/^[a-z]/,'');
     if(S.ideas[num]){focus('idea',num);S.cmdBuf='';S.cmdMode=null;updateCmd();return;}
     const z=S.zones.find(z=>z.id===`z${num}`);
     if(z){focus('zone',z.id);S.cmdBuf='';S.cmdMode=null;updateCmd();return;}
@@ -1153,7 +1258,8 @@ const App = (() => {
     if(S.cmdBuf) txt=S.cmdBuf;
     else if(S.cmdMode==='palette') txt='COLOR: 1紫  2シアン  3緑  4琥珀  5ピンク  Esc:キャンセル';
     else if(S.mode==='resize') txt=`リサイズモード [${S.resizeZoneId}] — ↑↓←→ / Enter:確定`;
-    else if(S.focused){ const{kind,id}=S.focused; txt=`${kind} #${String(id).replace(/[a-z]/g,'')} — Enter:編集/展開  Shift+↑↓←→:移動  m:配置  p:カラー  x:削除`; }
+    else if(S.cmdMode==='v') txt='VIEW: Enter=全体  1-9=テンキー位置にズーム  Esc:キャンセル';
+    else if(S.focused){ const{kind,id}=S.focused; txt=`${kind} #${String(id).replace(/[a-z]/g,'')} — Enter:編集/展開  Shift+↑↓←→:移動  m:配置  p:カラー  u:解除  x:削除`; }
     cmdBufEl.textContent=txt;
   }
   function updateStat() {
