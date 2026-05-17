@@ -299,6 +299,9 @@ body {
 /* ─── BOOK BUILD SELECTION ─── */
 .book-selected { outline:2px solid var(--amber);outline-offset:3px; }
 
+/* ─── MOVE SELECTION ─── */
+.move-selected { outline:2px solid var(--purple);outline-offset:3px; }
+
 /* ─── CONNECT SOURCE ─── */
 .connect-source { animation:connectPulse .9s ease-in-out infinite; }
 @keyframes connectPulse { 0%,100%{opacity:1}50%{opacity:.45} }
@@ -333,6 +336,7 @@ body {
     <div class="hint"><span class="hk">p</span>カラー</div>
     <div class="hint"><span class="hk">u</span>解除</div>
     <div class="hint"><span class="hk">x</span>削除</div>
+    <div class="hint"><span class="hk">m</span>移動</div>
     <div class="hint"><span class="hk">v</span>ビュー</div>
   </div>
   <div id="toolbar">
@@ -404,7 +408,9 @@ const App = (() => {
     hintBuf: '',
     hintReturnToConnect: false,
     hintReturnToBook: false,
+    hintReturnToMove: false,
     bookSelection: [],     // idea ids accumulating for book build
+    moveSelection: [],     // {kind,id} objects accumulating for move
     theme: 'dark',
   };
 
@@ -1051,7 +1057,7 @@ const App = (() => {
     if (S.mode==='edit') return;
 
     if (e.key==='Escape') {
-      closePalette(); exitConnectMode(); closeHintSelect(); cancelBookBuild();
+      closePalette(); exitConnectMode(); closeHintSelect(); cancelBookBuild(); cancelMoveSelect();
       S.cmdBuf=''; S.cmdMode=null;
       if (S.mode==='resize') setMode('select');
       updateCmd(); return;
@@ -1076,6 +1082,19 @@ const App = (() => {
     if (S.cmdMode==='palette') { handlePaletteKey(e.key); return; }
     if (S.cmdMode==='hint')    { handleHintKey(e); return; }
     if (S.cmdMode==='c')       { handleConnectKey(e); return; }
+
+    if (S.cmdMode==='move') {
+      if (e.key==='Escape'){ cancelMoveSelect(); return; }
+      if (e.key==='Enter'){ e.preventDefault(); finalizeMoveSelect(); return; }
+      if (e.key==='f'||e.key==='m'){ e.preventDefault(); openHintSelect(false, false, true); return; }
+      if (['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)) {
+        e.preventDefault();
+        const step = e.shiftKey ? 50 : 20;
+        moveMoveSelection(e.key, step);
+        return;
+      }
+      return;
+    }
 
     if (S.cmdMode==='book') {
       if (e.key==='Escape'){ cancelBookBuild(); return; }
@@ -1133,6 +1152,12 @@ const App = (() => {
         S.cmdMode='v'; S.cmdBuf='v'; updateCmd();
         toast('ビュー: Enter=全体表示  1〜9=テンキー配置でズーム');
         break;
+      case 'm':
+        e.preventDefault();
+        S.cmdMode='move'; S.moveSelection=[];
+        toast('移動: f でオブジェクトを選択  矢印で移動  Shift+矢印で大きく移動  Enter:確定  Esc:終了');
+        openHintSelect(false, false, true);
+        break;
       case 'u':
         e.preventDefault();
         unbookOrDetach();
@@ -1181,6 +1206,37 @@ const App = (() => {
     S.bookSelection = [];
     S.cmdMode = null; S.cmdBuf = '';
     updateCmd();
+  }
+
+  // ─── MOVE SELECTION ───────────────────────────────────────────────────
+  function cancelMoveSelect() {
+    document.querySelectorAll('.move-selected').forEach(el=>el.classList.remove('move-selected'));
+    S.moveSelection = [];
+    if (S.cmdMode === 'move') { S.cmdMode = null; S.cmdBuf = ''; }
+    updateCmd();
+  }
+
+  function moveMoveSelection(key, step) {
+    S.moveSelection.forEach(({kind, id}) => {
+      let obj = null;
+      if (kind==='idea') obj = S.ideas[id];
+      else if (kind==='zone') obj = S.zones.find(z=>z.id===id);
+      else if (kind==='book') obj = S.books.find(b=>b.id===id);
+      if (!obj) return;
+      if (key==='ArrowLeft')  obj.x -= step;
+      if (key==='ArrowRight') obj.x += step;
+      if (key==='ArrowUp')    obj.y -= step;
+      if (key==='ArrowDown')  obj.y += step;
+      const el = getEl(kind, id);
+      if (el) { el.style.left = obj.x+'px'; el.style.top = obj.y+'px'; }
+    });
+    redrawConnectors(); save();
+  }
+
+  function finalizeMoveSelect() {
+    const count = S.moveSelection.length;
+    cancelMoveSelect();
+    if (count > 0) toast(`${count}件を移動しました`);
   }
 
   // ─── UNBOOK / DETACH ─────────────────────────────────────────────────
@@ -1444,15 +1500,31 @@ const App = (() => {
   }
 
   // ─── HINT SELECT (Vimium-style) ───────────────────────────────────────
-  function openHintSelect(returnToConnect = false, bookMode = false) {
+  function openHintSelect(returnToConnect = false, bookMode = false, moveMode = false) {
     closeHintSelect();
     const objs = [];
     if (bookMode) {
-      // Book build: only show visible ideas not yet selected
+      // Book build: only visible ideas not yet selected
       Object.values(S.ideas).forEach(o => {
         const el = document.getElementById(`idea-${o.id}`);
         if (el && el.style.display !== 'none' && !S.bookSelection.includes(o.id))
           objs.push({kind:'idea', id:o.id});
+      });
+    } else if (moveMode) {
+      // Move: all objects not yet in move selection
+      const inSel = ({kind,id}) => S.moveSelection.some(s=>s.kind===kind&&s.id===id);
+      Object.values(S.ideas).forEach(o => {
+        const el = document.getElementById(`idea-${o.id}`);
+        if (el && el.style.display !== 'none' && !inSel({kind:'idea',id:o.id}))
+          objs.push({kind:'idea', id:o.id});
+      });
+      S.zones.forEach(z => {
+        const el = document.getElementById(`zone-${z.id}`);
+        if (el && !inSel({kind:'zone',id:z.id})) objs.push({kind:'zone', id:z.id});
+      });
+      S.books.forEach(b => {
+        const el = document.getElementById(`book-${b.id}`);
+        if (el && !inSel({kind:'book',id:b.id})) objs.push({kind:'book', id:b.id});
       });
     } else {
       Object.values(S.ideas).forEach(o => {
@@ -1469,8 +1541,8 @@ const App = (() => {
       });
     }
     if (!objs.length) {
-      if (bookMode && S.bookSelection.length > 0)
-        toast(`${S.bookSelection.length}件選択済 — Enter で確定`);
+      if (bookMode && S.bookSelection.length > 0) toast(`${S.bookSelection.length}件選択済 — Enter で確定`);
+      if (moveMode && S.moveSelection.length > 0) toast(`${S.moveSelection.length}件選択済 — 矢印キーで移動`);
       return;
     }
     const chars = 'ASDFJKLGHQWERTYUIOPZXCVBNM';
@@ -1492,6 +1564,7 @@ const App = (() => {
     S.hintBuf = '';
     S.hintReturnToConnect = returnToConnect;
     S.hintReturnToBook = bookMode;
+    S.hintReturnToMove = moveMode;
     S.cmdMode = 'hint';
     updateCmd();
   }
@@ -1516,16 +1589,25 @@ const App = (() => {
         const target = S.hintMap[S.hintBuf];
         const returnToConnect = S.hintReturnToConnect;
         const returnToBook = S.hintReturnToBook;
+        const returnToMove = S.hintReturnToMove;
         closeHintSelect();
         if (returnToBook) {
-          // Add to book selection
           if (!S.bookSelection.includes(target.id)) S.bookSelection.push(target.id);
           const tEl = document.getElementById(`idea-${target.id}`);
           if (tEl) tEl.classList.add('book-selected');
           S.cmdMode = 'book';
           updateCmd();
-          // Re-open hints for remaining ideas automatically
           requestAnimationFrame(()=>openHintSelect(false, true));
+        } else if (returnToMove) {
+          const ep = {kind:target.kind, id:target.id};
+          if (!S.moveSelection.some(s=>s.kind===ep.kind&&s.id===ep.id)) {
+            S.moveSelection.push(ep);
+            const tEl = getEl(target.kind, target.id);
+            if (tEl) tEl.classList.add('move-selected');
+          }
+          S.cmdMode = 'move';
+          updateCmd();
+          requestAnimationFrame(()=>openHintSelect(false, false, true));
         } else {
           focus(target.kind, target.id);
           if (returnToConnect && S.connectFrom) {
@@ -1608,11 +1690,15 @@ const App = (() => {
     if(S.cmdMode==='c' && S.connectFrom)
       txt=`接続元: ${endpointLabel(S.connectFrom)} → 矢印キー/f で対象選択  Enter:ライン  Shift+Enter:アロー  Esc:中止`;
     else if(S.cmdMode==='hint' && S.hintReturnToBook)
-      txt=`ブック追加 [${S.hintBuf||'_'}] — ${S.bookSelection.length}件選択済  Enter:確定  Esc:キャンセル`;
+      txt=`ブック追加 — ${S.bookSelection.length}件選択済  [${S.hintBuf||'_'}]  Enter:確定  Esc:キャンセル`;
+    else if(S.cmdMode==='hint' && S.hintReturnToMove)
+      txt=`移動対象を選択 — ${S.moveSelection.length}件選択済  [${S.hintBuf||'_'}]  矢印:移動  Esc:終了`;
     else if(S.cmdMode==='hint')
       txt=`ジャンプ [${S.hintBuf||'_'}] — アルファベットを入力  Esc:キャンセル`;
     else if(S.cmdMode==='book')
       txt=`ブック作成: ${S.bookSelection.length}件選択済  f:追加  Enter:確定  Esc:キャンセル`;
+    else if(S.cmdMode==='move')
+      txt=`移動モード: ${S.moveSelection.length}件選択済  f:追加  ↑↓←→:移動  Shift+↑↓:大移動  Enter:確定  Esc:終了`;
     else if(S.cmdBuf) txt=S.cmdBuf;
     else if(S.cmdMode==='palette') txt='COLOR: 1紫  2シアン  3緑  4琥珀  5ピンク  Esc:キャンセル';
     else if(S.mode==='resize') txt=`リサイズモード — ↑↓←→:サイズ変更  Enter:確定`;
@@ -1734,7 +1820,7 @@ const App = (() => {
       const text = (idea.text || '').trim();
       const firstLine = text.split('\n')[0] || '(空)';
       const rest = text.split('\n').slice(1).join('\n').trim();
-      lines.push(`${indent}- #${id} ${firstLine}`);
+      lines.push(`${indent}- ${firstLine}`);
       if (rest) rest.split('\n').forEach(l => lines.push(`${indent}  ${l}`));
       (childrenOf[id] || []).slice().sort((a,b)=>a-b).forEach(cid => printIdea(cid, indent + '  '));
     }
@@ -1746,8 +1832,7 @@ const App = (() => {
     sortedZones.forEach(z => {
       const zoneIdeas = allIds.filter(id => ideaZone[id] === z.id);
       if (!zoneIdeas.length) return;
-      const numPart = z.id.replace('z','');
-      lines.push(`## ZONE ${numPart}: ${z.label}`);
+      lines.push(`## ${z.label}`);
       lines.push('');
       // Roots = ideas with no parent inside this zone
       const roots = zoneIdeas.filter(id => {
