@@ -711,31 +711,56 @@ const App = (() => {
   }
 
   // ─── CONNECTORS (screen-space SVG) ───────────────────────────────────
-  function buildConnector(fromId, toId, type) {
-    if (!S.ideas[fromId]||!S.ideas[toId]) {
-      toast(`アイデア #${fromId} または #${toId} が見つかりません`); return;
-    }
-    const booked = getBookedIdeas();
-    if (booked.has(fromId)||booked.has(toId)) {
-      toast('ブック内のアイデアは直接接続できません'); return;
-    }
-    const dup = S.connectors.find(c=>(c.from===fromId&&c.to===toId)||(type==='line'&&c.from===toId&&c.to===fromId));
+  function resolveByNum(num) {
+    if (S.ideas[num]) return { kind:'idea', id:num };
+    const z = S.zones.find(z=>z.id===`z${num}`);
+    if (z) return { kind:'zone', id:z.id };
+    const b = S.books.find(b=>b.id===`bk${num}`);
+    if (b) return { kind:'book', id:b.id };
+    return null;
+  }
+
+  function endpointLabel(ep) {
+    if (ep.kind==='idea') return `#${ep.id}`;
+    if (ep.kind==='zone') return `Z${ep.id.replace('z','')}`;
+    if (ep.kind==='book') return `B${ep.id.replace('bk','')}`;
+    return String(ep.id);
+  }
+
+  function buildConnector(fromNum, toNum, type) {
+    const fromEp = resolveByNum(fromNum);
+    const toEp   = resolveByNum(toNum);
+    if (!fromEp) { toast(`オブジェクト #${fromNum} が見つかりません`); return; }
+    if (!toEp)   { toast(`オブジェクト #${toNum} が見つかりません`); return; }
+    const epEq = (a,b)=>a.kind===b.kind&&a.id===b.id;
+    const dup = S.connectors.find(c=>
+      (epEq(c.from,fromEp)&&epEq(c.to,toEp))||
+      (type==='line'&&epEq(c.from,toEp)&&epEq(c.to,fromEp)));
     if (dup) {
       S.connectors = S.connectors.filter(c=>c.id!==dup.id);
       redrawConnectors(); save();
-      toast(`#${fromId} — #${toId} の接続を削除`);
+      toast(`${endpointLabel(fromEp)} — ${endpointLabel(toEp)} の接続を削除`);
       return;
     }
     const id = `c${S.nextId++}`;
-    S.connectors.push({id, from:fromId, to:toId, type});
-    redrawConnectors();
-    save();
-    toast(`#${fromId} ${type==='arrow'?'→':'—'} #${toId} を接続`);
+    S.connectors.push({id, from:fromEp, to:toEp, type});
+    redrawConnectors(); save();
+    toast(`${endpointLabel(fromEp)} ${type==='arrow'?'→':'—'} ${endpointLabel(toEp)} を接続`);
   }
 
-  function ideaScreenCenter(id) {
-    const el = document.getElementById(`idea-${id}`);
-    if (!el || el.style.display==='none') return null;
+  function objScreenCenter(ep) {
+    if (!ep) return null;
+    let el;
+    if (ep.kind==='idea') {
+      el = document.getElementById(`idea-${ep.id}`);
+      if (!el || el.style.display==='none') return null;
+    } else if (ep.kind==='zone') {
+      el = document.getElementById(`zone-${ep.id}`);
+      if (!el) return null;
+    } else if (ep.kind==='book') {
+      el = document.getElementById(`book-${ep.id}`);
+      if (!el) return null;
+    } else return null;
     const bx = parseFloat(el.style.left) + el.offsetWidth/2;
     const by = parseFloat(el.style.top)  + el.offsetHeight/2;
     return b2s(bx, by);
@@ -761,13 +786,21 @@ const App = (() => {
   }
   buildArrowMarkers();
 
+  function epColor(ep) {
+    if (!ep) return 'purple';
+    if (ep.kind==='idea') return (S.ideas[ep.id]||{}).color||'purple';
+    if (ep.kind==='zone') return 'cyan';
+    if (ep.kind==='book') return 'amber';
+    return 'purple';
+  }
+
   function redrawConnectors() {
     svgOverlay.querySelectorAll('.conn-g').forEach(e=>e.remove());
     S.connectors.forEach(conn=>{
-      const a = ideaScreenCenter(conn.from);
-      const b = ideaScreenCenter(conn.to);
+      const a = objScreenCenter(conn.from);
+      const b = objScreenCenter(conn.to);
       if (!a||!b) return;
-      const color = (S.ideas[conn.from]||{}).color||'purple';
+      const color = epColor(conn.from);
       const hex = COLOR_HEX[color];
       const g = document.createElementNS('http://www.w3.org/2000/svg','g');
       g.classList.add('conn-g');
@@ -825,9 +858,8 @@ const App = (() => {
   }
 
   // ─── OVERLAP RESOLUTION ───────────────────────────────────────────────
-  function resolveOverlaps(movedId) {
+  function resolveOverlaps(anchorId) {
     const PAD = 12;
-    // Collect visible ideas with their element sizes
     const items = Object.values(S.ideas)
       .filter(o => {
         const el = document.getElementById(`idea-${o.id}`);
@@ -840,21 +872,17 @@ const App = (() => {
 
     if (items.length < 2) return;
 
-    // Sort: the dragged idea is anchor, others adjust
-    items.sort((a,b) => a.obj.id===movedId ? -1 : b.obj.id===movedId ? 1 : a.obj.y-b.obj.y);
-
     let changed = true, iter = 0;
-    while (changed && iter++ < 40) {
+    while (changed && iter++ < 60) {
       changed = false;
       for (let i = 0; i < items.length; i++) {
-        const A = items[i];
         for (let j = 0; j < items.length; j++) {
-          if (i===j || (A.obj.id===movedId && j!==i)) continue; // anchor doesn't move
-          const B = items[j];
-          if (A.obj.id === movedId && j < i) continue;
+          if (i === j) continue;
+          const A = items[i], B = items[j];
+          if (B.obj.id === anchorId) continue; // anchor never moves, but can push
           const overX = A.obj.x < B.obj.x + B.w + PAD && A.obj.x + A.w + PAD > B.obj.x;
           const overY = A.obj.y < B.obj.y + B.h + PAD && A.obj.y + A.h + PAD > B.obj.y;
-          if (overX && overY && B.obj.id !== movedId) {
+          if (overX && overY) {
             B.obj.y = A.obj.y + A.h + PAD;
             const el = document.getElementById(`idea-${B.obj.id}`);
             if (el) el.style.top = B.obj.y + 'px';
@@ -1003,7 +1031,7 @@ const App = (() => {
       case 'j':
         e.preventDefault();
         S.cmdMode='j'; S.cmdBuf='j'; updateCmd();
-        toast('接続: j[ID][+or-][ID]  例:j1+2=ライン  j2-3=アロー');
+        toast('接続: j[ID][+or-][ID] + Enter  アイデア/ゾーン/ブック対応  例:j1+2=ライン  j2-3=アロー');
         break;
       case 's':
         e.preventDefault();
@@ -1358,7 +1386,11 @@ const App = (() => {
       const fixed={};
       Object.entries(S.ideas).forEach(([k,v])=>{fixed[+k]=v;v.id=+v.id;});
       S.ideas=fixed;
-      S.connectors.forEach(c=>{c.from=+c.from;c.to=+c.to;});
+      // normalize connectors: old format had numeric from/to, new format uses {kind,id}
+      S.connectors.forEach(c=>{
+        if (typeof c.from !== 'object') c.from={kind:'idea',id:+c.from};
+        if (typeof c.to   !== 'object') c.to  ={kind:'idea',id:+c.to};
+      });
       return true;
     } catch(e){return false;}
   }
@@ -1398,7 +1430,10 @@ const App = (() => {
         const fixed={};
         Object.entries(S.ideas).forEach(([k,v])=>{fixed[+k]=v;v.id=+v.id;});
         S.ideas=fixed;
-        S.connectors.forEach(c=>{c.from=+c.from;c.to=+c.to;});
+        S.connectors.forEach(c=>{
+          if (typeof c.from !== 'object') c.from={kind:'idea',id:+c.from};
+          if (typeof c.to   !== 'object') c.to  ={kind:'idea',id:+c.to};
+        });
         renderAll(); save(); toast('インポートしました');
       } catch(ex){toast('インポートに失敗しました');}
     };
