@@ -560,10 +560,12 @@ const App = (() => {
     ta.addEventListener('keydown', e=>{
       if (e.key==='Escape'||(e.key==='Tab'&&!e.shiftKey)||(e.key==='Enter'&&e.shiftKey)) {
         e.preventDefault();
+        e.stopPropagation(); // prevent global Enter handler from re-entering edit mode
         obj.text = ta.value;
         setMode('select');
         renderIdea(id);
         focus('idea',id);
+        requestAnimationFrame(()=>resolveOverlaps(id));
       }
     });
   }
@@ -1034,6 +1036,7 @@ const App = (() => {
         }
         break;
       case 'Enter':
+        if (e.shiftKey) break; // Shift+Enter is handled inside the textarea
         if (S.focused?.kind==='idea')  { setMode('edit'); startEdit(S.focused.id); }
         if (S.focused?.kind==='zone')  { setMode('edit'); startZoneEdit(S.focused.id); }
         if (S.focused?.kind==='book')  { toggleBook(S.focused.id); }
