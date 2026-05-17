@@ -1571,8 +1571,17 @@ const App = (() => {
 
   function closeHintSelect() {
     document.querySelectorAll('.hint-label').forEach(e=>e.remove());
-    S.hintMap = null; S.hintBuf = ''; S.hintReturnToConnect = false;
-    if (S.cmdMode === 'hint') { S.cmdMode = null; updateCmd(); }
+    const wasBook = S.hintReturnToBook;
+    const wasMove = S.hintReturnToMove;
+    S.hintMap = null; S.hintBuf = '';
+    S.hintReturnToConnect = false; S.hintReturnToBook = false; S.hintReturnToMove = false;
+    if (S.cmdMode === 'hint') {
+      // Restore the parent mode if we were in a multi-select flow
+      if (wasMove) S.cmdMode = 'move';
+      else if (wasBook) S.cmdMode = 'book';
+      else S.cmdMode = null;
+      updateCmd();
+    }
   }
 
   function handleHintKey(e) {
