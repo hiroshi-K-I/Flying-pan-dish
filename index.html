@@ -558,7 +558,7 @@ const App = (() => {
     ta.setSelectionRange(ta.value.length, ta.value.length);
     ta.addEventListener('input', ()=>{ obj.text=ta.value; save(); });
     ta.addEventListener('keydown', e=>{
-      if (e.key==='Escape'||(e.key==='Tab'&&!e.shiftKey)) {
+      if (e.key==='Escape'||(e.key==='Tab'&&!e.shiftKey)||(e.key==='Enter'&&e.shiftKey)) {
         e.preventDefault();
         obj.text = ta.value;
         setMode('select');
