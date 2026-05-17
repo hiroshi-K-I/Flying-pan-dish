@@ -322,7 +322,8 @@ body {
   </div>
   <div id="toolbar">
     <button class="tb-btn" id="theme-btn" title="テーマ切替">◑</button>
-    <button class="tb-btn" onclick="App.exportJSON()">EXPORT</button>
+    <button class="tb-btn" onclick="App.exportMarkdown()">MD</button>
+    <button class="tb-btn" onclick="App.exportJSON()">JSON</button>
     <button class="tb-btn" onclick="document.getElementById('imp').click()">IMPORT</button>
     <input type="file" id="imp" accept=".json" style="display:none" onchange="App.importJSON(event)">
   </div>
@@ -452,6 +453,20 @@ const App = (() => {
       : '';
   }
 
+  function applyZoneBorder(el, z, focused) {
+    const hex = COLOR_HEX[z.color||'cyan'];
+    el.style.borderColor = hex;
+    el.style.boxShadow = focused ? `0 0 0 1px ${hex}, 0 0 20px ${hex}44` : '';
+  }
+
+  function applyBookBorder(el, bk, focused) {
+    const hex = COLOR_HEX[bk.color||'amber'];
+    const card = el.querySelector('.book-card');
+    if (!card) return;
+    card.style.borderColor = focused ? hex : '';
+    card.style.boxShadow   = focused ? `0 0 0 1px ${hex}, 0 0 24px ${hex}4d` : '';
+  }
+
   function focus(kind, id) {
     clearFocus();
     S.focused = {kind,id};
@@ -459,7 +474,9 @@ const App = (() => {
     const el = getEl(kind,id);
     if (el) {
       el.classList.add('focused');
-      if (kind==='idea' && S.ideas[id]) applyIdeaBorder(el, S.ideas[id], true);
+      if (kind==='idea') { const o=S.ideas[id]; if(o) applyIdeaBorder(el,o,true); }
+      else if (kind==='zone') { const z=S.zones.find(z=>z.id===id); if(z) applyZoneBorder(el,z,true); }
+      else if (kind==='book') { const bk=S.books.find(b=>b.id===id); if(bk) applyBookBorder(el,bk,true); }
     }
     updateCmd();
   }
@@ -467,9 +484,13 @@ const App = (() => {
     document.querySelectorAll('.focused').forEach(el=>{
       el.classList.remove('focused');
       if (el.classList.contains('idea')) {
-        // keep border color, remove glow
         el.style.boxShadow = '';
         el.style.transform = '';
+      } else if (el.classList.contains('zone')) {
+        el.style.boxShadow = '';           // keep borderColor set by renderZone
+      } else if (el.classList.contains('book')) {
+        const card = el.querySelector('.book-card');
+        if (card) { card.style.borderColor=''; card.style.boxShadow=''; }
       }
     });
     S.focused = null;
@@ -565,7 +586,7 @@ const App = (() => {
         setMode('select');
         renderIdea(id);
         focus('idea',id);
-        requestAnimationFrame(()=>resolveOverlaps(id));
+        requestAnimationFrame(()=>resolveOverlaps());
       }
     });
   }
@@ -598,14 +619,17 @@ const App = (() => {
       });
     }
     const numPart = id.replace('z','');
+    const zhex = COLOR_HEX[z.color||'cyan'];
     el.style.left  = z.x+'px'; el.style.top  = z.y+'px';
     el.style.width = z.w+'px'; el.style.height= z.h+'px';
+    const isFocusedZ = S.focused?.kind==='zone' && S.focused.id===id;
+    applyZoneBorder(el, z, isFocusedZ);
     el.innerHTML = `
       <div class="zone-header">
-        <span class="zone-num">ZONE #${numPart}</span>
-        <span class="zone-lbl">${esc(z.label)}</span>
+        <span class="zone-num" style="color:${zhex};opacity:.65">ZONE #${numPart}</span>
+        <span class="zone-lbl" style="color:${zhex}cc;background:${zhex}18">${esc(z.label)}</span>
       </div>
-      <div class="zone-resize-handle"></div>`;
+      <div class="zone-resize-handle" style="background:linear-gradient(135deg,transparent 40%,${zhex}44 40%)"></div>`;
     // Resize handle
     const handle = el.querySelector('.zone-resize-handle');
     handle.addEventListener('mousedown', e=>{
@@ -629,12 +653,14 @@ const App = (() => {
     const el = document.getElementById(`zone-${id}`);
     if (!el) return;
     const numPart = id.replace('z','');
+    const zehex = COLOR_HEX[z.color||'cyan'];
     el.innerHTML = `
       <div class="zone-header">
-        <span class="zone-num">ZONE #${numPart}</span>
-        <input class="zone-lbl-input" value="${esc(z.label)}" maxlength="30">
+        <span class="zone-num" style="color:${zehex};opacity:.65">ZONE #${numPart}</span>
+        <input class="zone-lbl-input" value="${esc(z.label)}" maxlength="30"
+          style="background:${zehex}1a;border-color:${zehex};color:${zehex};caret-color:${zehex}">
       </div>
-      <div class="zone-resize-handle"></div>`;
+      <div class="zone-resize-handle" style="background:linear-gradient(135deg,transparent 40%,${zehex}44 40%)"></div>`;
     const inp = el.querySelector('.zone-lbl-input');
     inp.focus(); inp.select();
     inp.addEventListener('input', ()=>{ z.label=inp.value; });
@@ -686,27 +712,33 @@ const App = (() => {
     }
     el.style.left = bk.x+'px'; el.style.top = bk.y+'px';
     const numPart = id.replace('bk','');
+    const bkhex = COLOR_HEX[bk.color||'amber'];
     // First child's text becomes the book title
     const firstChild = bk.children[0] ? S.ideas[bk.children[0]] : null;
     const titleText = firstChild?.text
       ? esc(firstChild.text.split('\n')[0].slice(0,40)) + (firstChild.text.length>40?'…':'')
       : `BOOK #${numPart}`;
-    const restTags = bk.children.slice(1).map(c=>`<span class="btag">#${c}</span>`).join('');
+    // Collapsed: show rest as tags; Expanded: show children from 2nd onward (1st = title)
+    const restChildren = bk.children.slice(1);
+    const restTags = restChildren.map(c=>`<span class="btag" style="background:${bkhex}1a;border-color:${bkhex}44;color:${bkhex}">#${c}</span>`).join('');
+    const expandedChildren = bk.expanded ? restChildren : [];
     const exp = bk.expanded ? `<div class="book-expanded">${
-      bk.children.map(c=>{
+      expandedChildren.map(c=>{
         const o=S.ideas[c];
-        return `<div class="book-inner"><div class="book-inner-num">#${c}</div>${esc(o?o.text:'')}</div>`;
+        return `<div class="book-inner"><div class="book-inner-num" style="color:${bkhex}">#${c}</div>${esc(o?o.text:'')}</div>`;
       }).join('')
     }</div>` : '';
     el.innerHTML = `<div class="book-stack"><div class="book-card">
       <div class="book-hdr">
-        <span class="book-icon">${bk.expanded?'▼':'▶'}</span>
-        <span class="book-bid">BK#${numPart}</span>
+        <span class="book-icon" style="color:${bkhex}">${bk.expanded?'▼':'▶'}</span>
+        <span class="book-bid" style="color:${bkhex}">BK#${numPart}</span>
         <span class="book-ttl" style="font-size:11px;color:var(--text);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${titleText}</span>
       </div>
       <div class="book-tags">${restTags}</div>
       ${exp}
     </div></div>`;
+    const isFocusedBk = S.focused?.kind==='book' && S.focused.id===id;
+    applyBookBorder(el, bk, isFocusedBk);
     if (animate) { el.classList.add('spring-in'); setTimeout(()=>el.classList.remove('spring-in'),400); }
   }
 
@@ -789,8 +821,8 @@ const App = (() => {
   function epColor(ep) {
     if (!ep) return 'purple';
     if (ep.kind==='idea') return (S.ideas[ep.id]||{}).color||'purple';
-    if (ep.kind==='zone') return 'cyan';
-    if (ep.kind==='book') return 'amber';
+    if (ep.kind==='zone') return (S.zones.find(z=>z.id===ep.id)||{}).color||'cyan';
+    if (ep.kind==='book') return (S.books.find(b=>b.id===ep.id)||{}).color||'amber';
     return 'purple';
   }
 
@@ -847,7 +879,7 @@ const App = (() => {
       const onUp = ()=>{
         el.style.zIndex=''; el.style.transition='';
         // resolve overlaps only for idea dragging
-        if (el.classList.contains('idea')) resolveOverlaps(obj.id);
+        if (el.classList.contains('idea')) resolveOverlaps();
         save();
         document.removeEventListener('mousemove',onMove);
         document.removeEventListener('mouseup',onUp);
@@ -858,7 +890,8 @@ const App = (() => {
   }
 
   // ─── OVERLAP RESOLUTION ───────────────────────────────────────────────
-  function resolveOverlaps(anchorId) {
+  // Larger ID always yields to smaller ID (goes below). No anchor — ID is the authority.
+  function resolveOverlaps() {
     const PAD = 12;
     const items = Object.values(S.ideas)
       .filter(o => {
@@ -872,17 +905,19 @@ const App = (() => {
 
     if (items.length < 2) return;
 
+    // Stable sort: smaller IDs come first (they are the "fixed" anchor for larger IDs)
+    items.sort((a, b) => a.obj.id - b.obj.id);
+
     let changed = true, iter = 0;
     while (changed && iter++ < 60) {
       changed = false;
       for (let i = 0; i < items.length; i++) {
-        for (let j = 0; j < items.length; j++) {
-          if (i === j) continue;
-          const A = items[i], B = items[j];
-          if (B.obj.id === anchorId) continue; // anchor never moves, but can push
+        for (let j = i + 1; j < items.length; j++) {
+          const A = items[i], B = items[j]; // A.id < B.id (sorted)
           const overX = A.obj.x < B.obj.x + B.w + PAD && A.obj.x + A.w + PAD > B.obj.x;
           const overY = A.obj.y < B.obj.y + B.h + PAD && A.obj.y + A.h + PAD > B.obj.y;
           if (overX && overY) {
+            // B has larger ID → push B below A
             B.obj.y = A.obj.y + A.h + PAD;
             const el = document.getElementById(`idea-${B.obj.id}`);
             if (el) el.style.top = B.obj.y + 'px';
@@ -1058,7 +1093,11 @@ const App = (() => {
         if (S.focused?.kind==='zone') {
           S.resizeZoneId=S.focused.id;
           const el=getEl('zone',S.focused.id);
-          if(el){el.classList.add('resize-mode');}
+          if(el){
+            el.classList.add('resize-mode');
+            el.style.borderColor=COLOR_HEX.amber;
+            el.style.boxShadow=`0 0 0 1px ${COLOR_HEX.amber}, 0 0 20px rgba(245,158,11,.2)`;
+          }
           setMode('resize');
           toast('リサイズモード: ↑↓←→ でサイズ変更 / Enter で確定');
         }
@@ -1295,15 +1334,18 @@ const App = (() => {
   }
   function applyColor(color) {
     const lf=S.lastFocused;
-    if(!lf||lf.kind!=='idea')return;
-    const o=S.ideas[lf.id];
-    if(!o)return;
-    o.color=color;
-    renderIdea(lf.id);
-    focus('idea',lf.id);
-    buildArrowMarkers();
-    redrawConnectors();
-    save();
+    if(!lf)return;
+    if(lf.kind==='idea'){
+      const o=S.ideas[lf.id]; if(!o)return;
+      o.color=color; renderIdea(lf.id); focus('idea',lf.id);
+    } else if(lf.kind==='zone'){
+      const z=S.zones.find(z=>z.id===lf.id); if(!z)return;
+      z.color=color; renderZone(lf.id); focus('zone',lf.id);
+    } else if(lf.kind==='book'){
+      const bk=S.books.find(b=>b.id===lf.id); if(!bk)return;
+      bk.color=color; renderBook(lf.id); focus('book',lf.id);
+    }
+    buildArrowMarkers(); redrawConnectors(); save();
   }
   document.querySelectorAll('.psw').forEach(sw=>{
     sw.addEventListener('click',()=>{applyColor(sw.dataset.c);closePalette();});
@@ -1408,6 +1450,101 @@ const App = (() => {
     document.getElementById('theme-btn').textContent=S.theme==='dark'?'◑':'◐';
   }
 
+  // ─── MARKDOWN EXPORT ──────────────────────────────────────────────────
+  function exportMarkdown() {
+    const lines = [];
+    lines.push('# IDEA BOARD');
+    lines.push('');
+    lines.push(`> エクスポート: ${new Date().toLocaleDateString('ja-JP')}`);
+    lines.push('');
+
+    // 1. Determine which zone each idea belongs to (by position containment)
+    const ideaZone = {};
+    Object.values(S.ideas).forEach(idea => {
+      for (const z of S.zones) {
+        if (idea.x >= z.x && idea.x <= z.x + z.w &&
+            idea.y >= z.y && idea.y <= z.y + z.h) {
+          ideaZone[idea.id] = z.id;
+          break;
+        }
+      }
+    });
+
+    // 2. Build directed adjacency list from connectors (idea-to-idea only)
+    const childrenOf = {}; // parent id → [child ids]
+    const parentOf   = {}; // child id → parent id
+    S.connectors.forEach(conn => {
+      if (conn.from.kind !== 'idea' || conn.to.kind !== 'idea') return;
+      let parentId, childId;
+      if (conn.type === 'arrow') {
+        parentId = conn.from.id; childId = conn.to.id;
+      } else {
+        parentId = Math.min(conn.from.id, conn.to.id);
+        childId  = Math.max(conn.from.id, conn.to.id);
+      }
+      if (!childrenOf[parentId]) childrenOf[parentId] = [];
+      childrenOf[parentId].push(childId);
+      if (!parentOf[childId]) parentOf[childId] = parentId; // first parent wins
+    });
+
+    // 3. DFS printer
+    const printed = new Set();
+    function printIdea(id, indent) {
+      if (printed.has(id)) return;
+      printed.add(id);
+      const idea = S.ideas[id];
+      if (!idea) return;
+      const text = (idea.text || '').trim();
+      const firstLine = text.split('\n')[0] || '(空)';
+      const rest = text.split('\n').slice(1).join('\n').trim();
+      lines.push(`${indent}- #${id} ${firstLine}`);
+      if (rest) rest.split('\n').forEach(l => lines.push(`${indent}  ${l}`));
+      (childrenOf[id] || []).slice().sort((a,b)=>a-b).forEach(cid => printIdea(cid, indent + '  '));
+    }
+
+    // 4. Print zone chapters (sorted by zone number)
+    const sortedZones = [...S.zones].sort((a,b) => +a.id.replace('z','') - +b.id.replace('z',''));
+    const allIds = Object.keys(S.ideas).map(Number).sort((a,b)=>a-b);
+
+    sortedZones.forEach(z => {
+      const zoneIdeas = allIds.filter(id => ideaZone[id] === z.id);
+      if (!zoneIdeas.length) return;
+      const numPart = z.id.replace('z','');
+      lines.push(`## ZONE ${numPart}: ${z.label}`);
+      lines.push('');
+      // Roots = ideas with no parent inside this zone
+      const roots = zoneIdeas.filter(id => {
+        const p = parentOf[id];
+        return !p || !zoneIdeas.includes(p);
+      }).sort((a,b)=>a-b);
+      roots.forEach(id => printIdea(id, ''));
+      zoneIdeas.forEach(id => { if (!printed.has(id)) printIdea(id, ''); });
+      lines.push('');
+    });
+
+    // 5. Ungrouped ideas
+    const ungrouped = allIds.filter(id => !ideaZone[id]);
+    if (ungrouped.length) {
+      lines.push('## ゾーンなし');
+      lines.push('');
+      const roots = ungrouped.filter(id => {
+        const p = parentOf[id];
+        return !p || !ungrouped.includes(p);
+      }).sort((a,b)=>a-b);
+      roots.forEach(id => printIdea(id, ''));
+      ungrouped.forEach(id => { if (!printed.has(id)) printIdea(id, ''); });
+      lines.push('');
+    }
+
+    const md = lines.join('\n');
+    const blob = new Blob([md], {type:'text/markdown'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `ideaboard-${Date.now()}.md`;
+    a.click(); URL.revokeObjectURL(url);
+    toast('Markdownをエクスポートしました');
+  }
+
   // ─── EXPORT / IMPORT ──────────────────────────────────────────────────
   function exportJSON() {
     const data={ideas:S.ideas,connectors:S.connectors,zones:S.zones,books:S.books,nextId:S.nextId,
@@ -1448,7 +1585,7 @@ const App = (() => {
     if(!hasSaved) toast('TAB → i でアイデアを作成  /  Alt+ドラッグ でパン  /  スクロールでズーム');
   })();
 
-  return {exportJSON,importJSON};
+  return {exportJSON,exportMarkdown,importJSON};
 })();
 </script>
 </body>
