@@ -322,7 +322,7 @@ body {
     <div class="hint"><span class="hk">TAB</span>モード切替</div>
     <div class="hint"><span class="hk">i</span>アイデア</div>
     <div class="hint"><span class="hk">z</span>ゾーン</div>
-    <div class="hint"><span class="hk">b###</span>ブック</div>
+    <div class="hint"><span class="hk">b#+#</span>ブック</div>
     <div class="hint"><span class="hk">j#±#</span>接続</div>
     <div class="hint"><span class="hk">n#</span>選択</div>
     <div class="hint"><span class="hk">m#+##</span>移動</div>
@@ -876,7 +876,7 @@ const App = (() => {
     if (S.cmdMode==='b') {
       if (e.key==='Escape'){ S.cmdBuf='';S.cmdMode=null;updateCmd();return; }
       if (e.key==='Enter'){ execBook();return; }
-      if (/^\d$/.test(e.key)){ S.cmdBuf+=e.key;updateCmd(); }
+      if (/^\d$/.test(e.key)||e.key==='+'){ S.cmdBuf+=e.key;updateCmd(); }
       return;
     }
     if (S.cmdMode==='n') {
@@ -916,7 +916,7 @@ const App = (() => {
       case 'b':
         e.preventDefault();
         S.cmdMode='b'; S.cmdBuf='b'; updateCmd();
-        toast('ブック: b + 数字キー(ID列) + Enter  例:b123 → #1,#2,#3を含むブック');
+        toast('ブック: b+[ID]+[ID]+... + Enter  例:b1+2+3 → #1,#2,#3を含むブック  b10+23 → #10,#23');
         break;
       case 'j':
         e.preventDefault();
@@ -985,8 +985,9 @@ const App = (() => {
 
   // ─── BOOK ─────────────────────────────────────────────────────────────
   function execBook() {
-    const digits=S.cmdBuf.slice(1).split('').map(Number);
-    const valid=digits.filter(d=>S.ideas[d]);
+    // Format: b[ID]+[ID]+[ID]... — supports multi-digit IDs
+    const ids = S.cmdBuf.slice(1).split('+').map(Number).filter(n => n > 0 && S.ideas[n]);
+    const valid = [...new Set(ids)]; // deduplicate
     if(!valid.length){toast('有効なアイデアIDが見つかりません');S.cmdBuf='';S.cmdMode=null;updateCmd();return;}
     createBook(valid);
     S.cmdBuf='';S.cmdMode=null;updateCmd();
