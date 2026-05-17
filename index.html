@@ -293,7 +293,7 @@ body {
   background:var(--toast-bg);border:1px solid var(--toast-border);
   border-radius:6px;padding:7px 13px;font-size:10px;color:var(--text);
   z-index:1000;pointer-events:none;
-  animation:toastIn .18s ease,toastOut .2s ease 1.9s forwards;
+  animation:toastIn .18s ease,toastOut .2s ease 6.7s forwards;
 }
 @keyframes toastIn  { from{transform:translateX(16px);opacity:0}to{transform:none;opacity:1} }
 @keyframes toastOut { from{opacity:1}to{opacity:0} }
@@ -408,7 +408,7 @@ const App = (() => {
     const t = document.createElement('div');
     t.className='toast'; t.textContent=msg;
     document.body.appendChild(t);
-    setTimeout(()=>t.remove(), 2300);
+    setTimeout(()=>t.remove(), 6900);
   }
 
   function centerPos(offX=0, offY=0) {
@@ -811,6 +811,8 @@ const App = (() => {
       };
       const onUp = ()=>{
         el.style.zIndex=''; el.style.transition='';
+        // resolve overlaps only for idea dragging
+        if (el.classList.contains('idea')) resolveOverlaps(obj.id);
         save();
         document.removeEventListener('mousemove',onMove);
         document.removeEventListener('mouseup',onUp);
@@ -818,6 +820,48 @@ const App = (() => {
       document.addEventListener('mousemove',onMove);
       document.addEventListener('mouseup',onUp);
     });
+  }
+
+  // ─── OVERLAP RESOLUTION ───────────────────────────────────────────────
+  function resolveOverlaps(movedId) {
+    const PAD = 12;
+    // Collect visible ideas with their element sizes
+    const items = Object.values(S.ideas)
+      .filter(o => {
+        const el = document.getElementById(`idea-${o.id}`);
+        return el && el.style.display !== 'none';
+      })
+      .map(o => {
+        const el = document.getElementById(`idea-${o.id}`);
+        return { obj: o, w: el.offsetWidth||160, h: el.offsetHeight||80 };
+      });
+
+    if (items.length < 2) return;
+
+    // Sort: the dragged idea is anchor, others adjust
+    items.sort((a,b) => a.obj.id===movedId ? -1 : b.obj.id===movedId ? 1 : a.obj.y-b.obj.y);
+
+    let changed = true, iter = 0;
+    while (changed && iter++ < 40) {
+      changed = false;
+      for (let i = 0; i < items.length; i++) {
+        const A = items[i];
+        for (let j = 0; j < items.length; j++) {
+          if (i===j || (A.obj.id===movedId && j!==i)) continue; // anchor doesn't move
+          const B = items[j];
+          if (A.obj.id === movedId && j < i) continue;
+          const overX = A.obj.x < B.obj.x + B.w + PAD && A.obj.x + A.w + PAD > B.obj.x;
+          const overY = A.obj.y < B.obj.y + B.h + PAD && A.obj.y + A.h + PAD > B.obj.y;
+          if (overX && overY && B.obj.id !== movedId) {
+            B.obj.y = A.obj.y + A.h + PAD;
+            const el = document.getElementById(`idea-${B.obj.id}`);
+            if (el) el.style.top = B.obj.y + 'px';
+            changed = true;
+          }
+        }
+      }
+    }
+    redrawConnectors();
   }
 
   // ─── PAN / ZOOM ───────────────────────────────────────────────────────
@@ -899,7 +943,9 @@ const App = (() => {
 
     if (S.cmdMode==='j') {
       if (e.key==='Escape'){ S.cmdBuf='';S.cmdMode=null;updateCmd();return; }
-      S.cmdBuf+=e.key; updateCmd(); tryJoint(); return;
+      if (e.key==='Enter'){ tryJoint();return; }
+      if (/^\d$/.test(e.key)||e.key==='+'||e.key==='-'){ S.cmdBuf+=e.key;updateCmd(); }
+      return;
     }
     if (S.cmdMode==='b') {
       if (e.key==='Escape'){ S.cmdBuf='';S.cmdMode=null;updateCmd();return; }
@@ -1097,8 +1143,10 @@ const App = (() => {
     const m=S.cmdBuf.match(/^j(\d+)([+\-])(\d+)$/);
     if(m){
       buildConnector(+m[1],+m[3],m[2]==='-'?'arrow':'line');
-      S.cmdBuf='';S.cmdMode=null;updateCmd();
+    } else {
+      toast('形式エラー: j[ID][+/-][ID] + Enter  例: j5+24=ライン  j2-3=アロー');
     }
+    S.cmdBuf='';S.cmdMode=null;updateCmd();
   }
 
   // ─── BOOK ─────────────────────────────────────────────────────────────
