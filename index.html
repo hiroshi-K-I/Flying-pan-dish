@@ -287,6 +287,19 @@ body {
   border-color:rgba(123,108,246,.5);
 }
 
+/* ─── HINT LABELS (Vimium-style) ─── */
+.hint-label {
+  position:fixed;transform:translate(-50%,-50%);
+  background:#f59e0b;color:#000;font-size:11px;font-weight:800;
+  padding:2px 5px;border-radius:3px;z-index:600;pointer-events:none;
+  letter-spacing:1px;box-shadow:0 2px 8px rgba(0,0,0,.45);
+}
+.hint-label.faded { opacity:.35; }
+
+/* ─── CONNECT SOURCE ─── */
+.connect-source { animation:connectPulse .9s ease-in-out infinite; }
+@keyframes connectPulse { 0%,100%{opacity:1}50%{opacity:.45} }
+
 /* ─── TOAST ─── */
 .toast {
   position:fixed;top:52px;right:18px;
@@ -308,13 +321,12 @@ body {
   </div>
   <div id="app-title">IDEA BOARD</div>
   <div class="hints">
-    <div class="hint"><span class="hk">TAB</span>モード切替</div>
     <div class="hint"><span class="hk">i</span>アイデア</div>
+    <div class="hint"><span class="hk">Enter</span>次へ連続</div>
+    <div class="hint"><span class="hk">c</span>接続</div>
+    <div class="hint"><span class="hk">f</span>ジャンプ</div>
     <div class="hint"><span class="hk">z</span>ゾーン</div>
     <div class="hint"><span class="hk">b#+#</span>ブック</div>
-    <div class="hint"><span class="hk">j#±#</span>接続</div>
-    <div class="hint"><span class="hk">s#</span>選択</div>
-    <div class="hint"><span class="hk">m#+##</span>移動</div>
     <div class="hint"><span class="hk">v</span>ビュー</div>
     <div class="hint"><span class="hk">p</span>カラー</div>
     <div class="hint"><span class="hk">u</span>解除</div>
@@ -322,6 +334,7 @@ body {
   </div>
   <div id="toolbar">
     <button class="tb-btn" id="theme-btn" title="テーマ切替">◑</button>
+    <button class="tb-btn" onclick="App.tidy()" title="全体表示 (v+Enter)">TIDY</button>
     <button class="tb-btn" onclick="App.exportMarkdown()">MD</button>
     <button class="tb-btn" onclick="App.exportJSON()">JSON</button>
     <button class="tb-btn" onclick="document.getElementById('imp').click()">IMPORT</button>
@@ -380,10 +393,14 @@ const App = (() => {
     pan: {x:300,y:200},
     zoom: 1,
     cmdBuf: '',
-    cmdMode: null,         // null|'j'|'b'|'palette'|'n'|'m'
+    cmdMode: null,         // null|'c'|'b'|'palette'|'s'|'m'|'v'|'hint'
     panning: false,
     panOrigin: null,
-    resizeZoneId: null,    // zone id currently being resized via keyboard
+    resizeZoneId: null,
+    connectFrom: null,     // {kind,id} — source endpoint during connect mode
+    hintMap: null,         // hint char → {kind,id}
+    hintBuf: '',
+    hintReturnToConnect: false,
     theme: 'dark',
   };
 
@@ -519,15 +536,27 @@ const App = (() => {
   }
 
   // ─── IDEA ─────────────────────────────────────────────────────────────
-  function createIdea() {
-    const pos = centerPos();
+  function createIdeaAt(x, y) {
     const id = S.nextId++;
-    S.ideas[id] = {id, x:pos.x, y:pos.y, text:'', color:'purple'};
+    S.ideas[id] = {id, x, y, text:'', color:'purple'};
     renderIdea(id, true);
     focus('idea', id);
     setMode('edit');
     startEdit(id);
     save(); updateStat();
+  }
+
+  function createIdea() {
+    if (S.focused?.kind === 'idea') {
+      // Cascade below focused idea
+      const fObj = S.ideas[S.focused.id];
+      const fEl  = getEl('idea', S.focused.id);
+      const h    = fEl ? fEl.offsetHeight : 80;
+      createIdeaAt(fObj.x, fObj.y + h + 20);
+    } else {
+      const pos = centerPos();
+      createIdeaAt(pos.x, pos.y);
+    }
   }
 
   function renderIdea(id, animate) {
@@ -579,15 +608,28 @@ const App = (() => {
     ta.setSelectionRange(ta.value.length, ta.value.length);
     ta.addEventListener('input', ()=>{ obj.text=ta.value; save(); });
     ta.addEventListener('keydown', e=>{
-      if (e.key==='Escape'||(e.key==='Tab'&&!e.shiftKey)||(e.key==='Enter'&&e.shiftKey)) {
-        e.preventDefault();
-        e.stopPropagation(); // prevent global Enter handler from re-entering edit mode
+      // Esc or Tab → commit and stop
+      if (e.key==='Escape' || (e.key==='Tab'&&!e.shiftKey)) {
+        e.preventDefault(); e.stopPropagation();
         obj.text = ta.value;
-        setMode('select');
-        renderIdea(id);
-        focus('idea',id);
+        setMode('select'); renderIdea(id); focus('idea',id);
         requestAnimationFrame(()=>resolveOverlaps());
+        return;
       }
+      // Enter (no shift) → commit and immediately create next idea below
+      if (e.key==='Enter' && !e.shiftKey) {
+        e.preventDefault(); e.stopPropagation();
+        obj.text = ta.value;
+        setMode('select'); renderIdea(id); focus('idea',id);
+        requestAnimationFrame(()=>{
+          resolveOverlaps();
+          const curEl = document.getElementById(`idea-${id}`);
+          const h = curEl ? curEl.offsetHeight : 80;
+          createIdeaAt(obj.x, obj.y + h + 20);
+        });
+        return;
+      }
+      // Shift+Enter → default textarea newline (no intercept)
     });
   }
 
@@ -857,6 +899,26 @@ const App = (() => {
       g.appendChild(path);
       svgOverlay.appendChild(g);
     });
+    updateConnectLine();
+  }
+
+  // ─── CONNECT ENDPOINTS (direct, no number lookup) ─────────────────────
+  const epEqual = (a,b) => a && b && a.kind===b.kind && a.id===b.id;
+
+  function connectEndpoints(fromEp, toEp, type) {
+    const dup = S.connectors.find(c=>
+      (epEqual(c.from,fromEp)&&epEqual(c.to,toEp))||
+      (type==='line'&&epEqual(c.from,toEp)&&epEqual(c.to,fromEp)));
+    if (dup) {
+      S.connectors = S.connectors.filter(c=>c.id!==dup.id);
+      redrawConnectors(); save();
+      toast(`${endpointLabel(fromEp)} — ${endpointLabel(toEp)} の接続を削除`);
+      return;
+    }
+    const id = `c${S.nextId++}`;
+    S.connectors.push({id, from:fromEp, to:toEp, type});
+    redrawConnectors(); save();
+    toast(`${endpointLabel(fromEp)} ${type==='arrow'?'→':'—'} ${endpointLabel(toEp)} を接続`);
   }
 
   // ─── DRAG ─────────────────────────────────────────────────────────────
@@ -982,7 +1044,7 @@ const App = (() => {
     if (S.mode==='edit') return;
 
     if (e.key==='Escape') {
-      closePalette(); hideMoveOverlay();
+      closePalette(); hideMoveOverlay(); exitConnectMode(); closeHintSelect();
       S.cmdBuf=''; S.cmdMode=null;
       if (S.mode==='resize') setMode('select');
       updateCmd(); return;
@@ -1005,13 +1067,9 @@ const App = (() => {
 
     // ── Command modes ──
     if (S.cmdMode==='palette') { handlePaletteKey(e.key); return; }
+    if (S.cmdMode==='hint')    { handleHintKey(e); return; }
+    if (S.cmdMode==='c')       { handleConnectKey(e); return; }
 
-    if (S.cmdMode==='j') {
-      if (e.key==='Escape'){ S.cmdBuf='';S.cmdMode=null;updateCmd();return; }
-      if (e.key==='Enter'){ tryJoint();return; }
-      if (/^\d$/.test(e.key)||e.key==='+'||e.key==='-'){ S.cmdBuf+=e.key;updateCmd(); }
-      return;
-    }
     if (S.cmdMode==='b') {
       if (e.key==='Escape'){ S.cmdBuf='';S.cmdMode=null;updateCmd();return; }
       if (e.key==='Enter'){ execBook();return; }
@@ -1061,12 +1119,15 @@ const App = (() => {
       case 'b':
         e.preventDefault();
         S.cmdMode='b'; S.cmdBuf='b'; updateCmd();
-        toast('ブック: b+[ID]+[ID]+... + Enter  例:b1+2+3 → #1,#2,#3を含むブック  b10+23 → #10,#23');
+        toast('ブック: b+[ID]+[ID]+... + Enter  例:b1+2+3  ゾーン=空間グループ / ブック=明示的な束');
         break;
-      case 'j':
+      case 'c':
         e.preventDefault();
-        S.cmdMode='j'; S.cmdBuf='j'; updateCmd();
-        toast('接続: j[ID][+or-][ID] + Enter  アイデア/ゾーン/ブック対応  例:j1+2=ライン  j2-3=アロー');
+        startConnectMode();
+        break;
+      case 'f':
+        e.preventDefault();
+        openHintSelect();
         break;
       case 's':
         e.preventDefault();
@@ -1103,7 +1164,6 @@ const App = (() => {
         }
         break;
       case 'Enter':
-        if (e.shiftKey) break; // Shift+Enter is handled inside the textarea
         if (S.focused?.kind==='idea')  { setMode('edit'); startEdit(S.focused.id); }
         if (S.focused?.kind==='zone')  { setMode('edit'); startZoneEdit(S.focused.id); }
         if (S.focused?.kind==='book')  { toggleBook(S.focused.id); }
@@ -1318,6 +1378,147 @@ const App = (() => {
     if(best)focus(best.kind,best.id);
   }
 
+  // ─── CONNECT MODE ─────────────────────────────────────────────────────
+  function startConnectMode() {
+    if (!S.focused) { toast('先にオブジェクトを選択してください'); return; }
+    S.connectFrom = {...S.focused};
+    S.cmdMode = 'c'; S.cmdBuf = 'c';
+    const srcEl = getEl(S.connectFrom.kind, S.connectFrom.id);
+    if (srcEl) srcEl.classList.add('connect-source');
+    updateCmd();
+    toast(`接続元: ${endpointLabel(S.connectFrom)} — 矢印キー or f で相手を選択 → Enter:ライン  Shift+Enter:アロー  Esc:キャンセル`);
+  }
+
+  function exitConnectMode() {
+    svgOverlay.querySelectorAll('.conn-preview').forEach(e=>e.remove());
+    if (S.connectFrom) {
+      const srcEl = getEl(S.connectFrom.kind, S.connectFrom.id);
+      if (srcEl) srcEl.classList.remove('connect-source');
+    }
+    S.connectFrom = null;
+    S.cmdMode = null; S.cmdBuf = '';
+    updateCmd();
+  }
+
+  function updateConnectLine() {
+    svgOverlay.querySelectorAll('.conn-preview').forEach(e=>e.remove());
+    if (S.cmdMode !== 'c' || !S.connectFrom || !S.focused) return;
+    if (epEqual(S.connectFrom, S.focused)) return;
+    const a = objScreenCenter(S.connectFrom);
+    const b = objScreenCenter(S.focused);
+    if (!a || !b) return;
+    const g = document.createElementNS('http://www.w3.org/2000/svg','g');
+    g.classList.add('conn-preview');
+    const dx=b.x-a.x, dy=b.y-a.y;
+    const d=`M${a.x},${a.y} C${a.x+dx*.35},${a.y} ${a.x+dx*.65},${b.y} ${b.x},${b.y}`;
+    const glow = document.createElementNS('http://www.w3.org/2000/svg','path');
+    glow.setAttribute('d',d); glow.setAttribute('fill','none');
+    glow.setAttribute('stroke','#7b6cf6'); glow.setAttribute('stroke-width','8'); glow.setAttribute('opacity','.18');
+    g.appendChild(glow);
+    const path = document.createElementNS('http://www.w3.org/2000/svg','path');
+    path.setAttribute('d',d); path.setAttribute('fill','none');
+    path.setAttribute('stroke','#fff'); path.setAttribute('stroke-width','1.5');
+    path.setAttribute('opacity','.7'); path.setAttribute('stroke-dasharray','7 3');
+    g.appendChild(path);
+    svgOverlay.appendChild(g);
+  }
+
+  function handleConnectKey(e) {
+    if (e.key === 'Escape') { exitConnectMode(); return; }
+    if (['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)) {
+      e.preventDefault();
+      navigateFocus(e.key);
+      updateConnectLine();
+      return;
+    }
+    if (e.key === 'f') {
+      e.preventDefault();
+      openHintSelect(true); // return to connect mode after selection
+      return;
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (S.focused && !epEqual(S.connectFrom, S.focused)) {
+        connectEndpoints(S.connectFrom, S.focused, e.shiftKey ? 'arrow' : 'line');
+      }
+      exitConnectMode();
+      return;
+    }
+  }
+
+  // ─── HINT SELECT (Vimium-style) ───────────────────────────────────────
+  function openHintSelect(returnToConnect = false) {
+    closeHintSelect();
+    const objs = [];
+    Object.values(S.ideas).forEach(o => {
+      const el = document.getElementById(`idea-${o.id}`);
+      if (el && el.style.display !== 'none') objs.push({kind:'idea', id:o.id});
+    });
+    S.zones.forEach(z => {
+      const el = document.getElementById(`zone-${z.id}`);
+      if (el) objs.push({kind:'zone', id:z.id});
+    });
+    S.books.forEach(b => {
+      const el = document.getElementById(`book-${b.id}`);
+      if (el) objs.push({kind:'book', id:b.id});
+    });
+    if (!objs.length) return;
+    const chars = 'ASDFJKLGHQWERTYUIOPZXCVBNM';
+    const hintMap = {};
+    objs.forEach((obj, i) => {
+      const h = i < chars.length ? chars[i] : chars[Math.floor(i/chars.length)-1]+chars[i%chars.length];
+      hintMap[h] = obj;
+      const sc = objScreenCenter(obj);
+      if (!sc) return;
+      const div = document.createElement('div');
+      div.className = 'hint-label';
+      div.dataset.hint = h;
+      div.textContent = h;
+      div.style.left = sc.x + 'px';
+      div.style.top  = sc.y + 'px';
+      document.body.appendChild(div);
+    });
+    S.hintMap = hintMap;
+    S.hintBuf = '';
+    S.hintReturnToConnect = returnToConnect;
+    S.cmdMode = 'hint';
+    updateCmd();
+  }
+
+  function closeHintSelect() {
+    document.querySelectorAll('.hint-label').forEach(e=>e.remove());
+    S.hintMap = null; S.hintBuf = ''; S.hintReturnToConnect = false;
+    if (S.cmdMode === 'hint') { S.cmdMode = null; updateCmd(); }
+  }
+
+  function handleHintKey(e) {
+    const k = e.key.toUpperCase();
+    if (e.key === 'Escape') { closeHintSelect(); return; }
+    if (/^[A-Z]$/.test(k)) {
+      e.preventDefault();
+      S.hintBuf += k;
+      // Dim hints that no longer match
+      document.querySelectorAll('.hint-label').forEach(el=>{
+        el.classList.toggle('faded', !el.dataset.hint.startsWith(S.hintBuf));
+      });
+      if (S.hintMap[S.hintBuf]) {
+        const target = S.hintMap[S.hintBuf];
+        const returnToConnect = S.hintReturnToConnect;
+        closeHintSelect();
+        focus(target.kind, target.id);
+        if (returnToConnect && S.connectFrom) {
+          S.cmdMode = 'c'; S.cmdBuf = 'c';
+          updateConnectLine(); updateCmd();
+        }
+      } else if (!Object.keys(S.hintMap).some(h=>h.startsWith(S.hintBuf))) {
+        closeHintSelect();
+      } else {
+        updateCmd();
+      }
+      return;
+    }
+  }
+
   // ─── PALETTE ──────────────────────────────────────────────────────────
   function openPalette() {
     if(!S.lastFocused){toast('先にオブジェクトを選択してください');return;}
@@ -1359,7 +1560,8 @@ const App = (() => {
     if(el){el.classList.add('fade-out');setTimeout(()=>el.remove(),200);}
     if(kind==='idea'){
       delete S.ideas[id];
-      S.connectors=S.connectors.filter(c=>c.from!==id&&c.to!==id);
+      S.connectors=S.connectors.filter(c=>
+        !(c.from.kind==='idea'&&c.from.id===id)&&!(c.to.kind==='idea'&&c.to.id===id));
       S.books.forEach(b=>{b.children=b.children.filter(c=>c!==id);});
       S.books.forEach(b=>renderBook(b.id));
       redrawConnectors();
@@ -1376,11 +1578,15 @@ const App = (() => {
   // ─── CMD / STATUS ─────────────────────────────────────────────────────
   function updateCmd() {
     let txt='';
-    if(S.cmdBuf) txt=S.cmdBuf;
+    if(S.cmdMode==='c' && S.connectFrom)
+      txt=`接続 [${endpointLabel(S.connectFrom)}] → 矢印キー or f で相手を選択  Enter:ライン  Shift+Enter:アロー  Esc:中止`;
+    else if(S.cmdMode==='hint')
+      txt=`ジャンプ [${S.hintBuf||'_'}] アルファベットを入力  Esc:キャンセル`;
+    else if(S.cmdBuf) txt=S.cmdBuf;
     else if(S.cmdMode==='palette') txt='COLOR: 1紫  2シアン  3緑  4琥珀  5ピンク  Esc:キャンセル';
     else if(S.mode==='resize') txt=`リサイズモード [${S.resizeZoneId}] — ↑↓←→ / Enter:確定`;
     else if(S.cmdMode==='v') txt='VIEW: Enter=全体  1-9=テンキー位置にズーム  Esc:キャンセル';
-    else if(S.focused){ const{kind,id}=S.focused; txt=`${kind} #${String(id).replace(/[a-z]/g,'')} — Enter:編集/展開  Shift+↑↓←→:移動  m:配置  p:カラー  u:解除  x:削除`; }
+    else if(S.focused){ const{kind,id}=S.focused; txt=`${kind} #${String(id).replace(/[a-z]/g,'')} — Enter:編集  c:接続  f:ジャンプ選択  p:カラー  u:解除  x:削除`; }
     cmdBufEl.textContent=txt;
   }
   function updateStat() {
@@ -1582,10 +1788,10 @@ const App = (() => {
   (function init(){
     const hasSaved=loadSaved();
     renderAll();
-    if(!hasSaved) toast('TAB → i でアイデアを作成  /  Alt+ドラッグ でパン  /  スクロールでズーム');
+    if(!hasSaved) toast('i でアイデアを作成、Enter で次々と連続入力  /  c で接続  /  f でジャンプ選択  /  Alt+ドラッグ でパン');
   })();
 
-  return {exportJSON,exportMarkdown,importJSON};
+  return {exportJSON,exportMarkdown,importJSON,tidy:fitAll};
 })();
 </script>
 </body>
