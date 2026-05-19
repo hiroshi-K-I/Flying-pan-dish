@@ -1546,8 +1546,8 @@ const App = (() => {
     S.ideas[id] = {id, x:mx, y:my, text:'', color:'green'};
     renderIdea(id, true);
     const bridgeEp = {kind:'idea', id};
-    S.connectors.push({id:`c${S.nextId++}`, from:fromEp,   to:bridgeEp, type:'arrow'});
-    S.connectors.push({id:`c${S.nextId++}`, from:bridgeEp, to:toEp,     type:'arrow'});
+    S.connectors.push({id:`c${S.nextId++}`, from:fromEp,   to:bridgeEp, type:'line'});
+    S.connectors.push({id:`c${S.nextId++}`, from:bridgeEp, to:toEp,     type:'line'});
     redrawConnectors(); save(); updateStat();
     focus('idea', id); setMode('edit'); startEdit(id);
     toast('架け橋アイデア — 2つをつなぐ概念を入力してください');
