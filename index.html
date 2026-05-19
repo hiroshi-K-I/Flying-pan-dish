@@ -920,8 +920,9 @@
       background: var(--header-bg);
     }
 
+    #note-list-hd { display: flex; align-items: center; gap: 5px; padding: 8px 8px 0; }
     #note-search {
-      margin: 10px;
+      flex: 1;
       padding: 6px 9px;
       background: var(--card);
       border: 1px solid var(--card-border);
@@ -931,6 +932,12 @@
       font-size: 11px;
       outline: none;
     }
+    #note-sort-btn {
+      background: var(--card); border: 1px solid var(--card-border); border-radius: 4px;
+      color: var(--dim); font-family: inherit; font-size: 9px; letter-spacing: .5px;
+      padding: 5px 7px; cursor: pointer; flex-shrink: 0; white-space: nowrap;
+    }
+    #note-sort-btn:hover { color: var(--text); border-color: var(--purple); }
 
     #note-search:focus {
       border-color: var(--purple);
@@ -1125,7 +1132,8 @@
 
     #note-preview ul,
     #note-preview ol {
-      margin: 7px 0 7px 22px;
+      margin: 7px 0;
+      padding-left: 22px;
     }
 
     #note-preview li {
@@ -1181,7 +1189,7 @@
 
     #note-preview li.task {
       list-style: none;
-      margin-left: -18px;
+      margin-left: -4px;
     }
 
     #note-preview li.task .cb {
@@ -1196,7 +1204,8 @@
     #note-preview ul ol,
     #note-preview ol ul,
     #note-preview ol ol {
-      margin: 2px 0 2px 18px;
+      margin: 2px 0;
+      padding-left: 16px;
     }
 
     .wikilink {
@@ -1442,16 +1451,19 @@
         <button class="vs-btn" data-view="graph">GRAPH</button>
       </div>
       <div style="margin-left:auto;display:flex;align-items:center;gap:6px;">
-        <span class="nt-hint">Ctrl+1/2/3 ビュー切替 &nbsp;|&nbsp; Alt+↑↓ メモ移動</span>
+        <span class="nt-hint">Ctrl+1/2/3 ビュー切替 &nbsp;|&nbsp; n 新規 &nbsp;|&nbsp; e 編集 &nbsp;|&nbsp; p プレビュー &nbsp;|&nbsp; Alt+↑↓ / [ ] メモ移動</span>
         <button class="nv-btn" id="note-toggle-prev" title="編集/プレビュー切替">プレビュー</button>
         <button class="nv-btn" id="note-open-board">ボードで開く</button>
       </div>
     </div>
     <div id="note-body">
       <div id="note-list">
-        <input id="note-search" placeholder="🔍 メモを検索...">
+        <div id="note-list-hd">
+          <input id="note-search" placeholder="🔍 メモを検索...">
+          <button id="note-sort-btn" title="並び順を切り替え">A→Z</button>
+        </div>
         <div id="note-list-items"></div>
-        <div class="nl-new" id="note-new">＋ 新規メモ</div>
+        <div class="nl-new" id="note-new">＋ 新規 (n)</div>
       </div>
       <div id="note-main">
         <div id="note-main-top">
@@ -1563,6 +1575,7 @@
         view: 'board',         // 'board'|'note'|'graph'
         activeNote: null,      // idea id open in note view
         notePreview: false,    // note view: show rendered preview
+        noteSort: 'az',         // 'az'|'za'|'new'|'old'
         graphPos: {},          // 'kind:id' → {x,y}
         gPan: { x: 0, y: 0 },
         gZoom: 1,
@@ -2235,25 +2248,33 @@
             switchView('board');
             return;
           }
-          // Note view: Alt+ArrowUp/Down or [ / ] to cycle notes
+          // Note view shortcuts
           if (S.view === 'note') {
             const ae = document.activeElement;
             const inTA = ae && ae.id === 'note-ta';
+            const inSearch = ae && ae.id === 'note-search';
+            const inInput = inTA || inSearch;
+            // Ctrl+P: toggle preview from anywhere
+            if (e.ctrlKey && e.key === 'p') { e.preventDefault(); toggleNotePreview(); return; }
+            // Navigation: Alt+↑↓ or [ ] outside input
             let step = 0;
-            if ((e.altKey && e.key === 'ArrowUp') || (!inTA && e.key === '[')) step = -1;
-            if ((e.altKey && e.key === 'ArrowDown') || (!inTA && e.key === ']')) step = 1;
+            if ((e.altKey && e.key === 'ArrowUp') || (!inInput && e.key === '[')) step = -1;
+            if ((e.altKey && e.key === 'ArrowDown') || (!inInput && e.key === ']')) step = 1;
             if (step !== 0) {
               e.preventDefault();
               const filter = document.getElementById('note-search').value.trim().toLowerCase();
-              const items = Object.values(S.ideas)
-                .map(o => ({ id: o.id, title: (o.text || '').split('\n')[0].replace(/^#+\s*/, '').trim() || '無題' }))
-                .filter(o => !filter || o.title.toLowerCase().includes(filter) || (S.ideas[o.id]?.text || '').toLowerCase().includes(filter))
-                .sort((a, b) => a.title.localeCompare(b.title, 'ja'));
-              if (!items.length) return;
-              const cur = items.findIndex(o => o.id === S.activeNote);
-              const next = items[((cur < 0 ? 0 : cur) + step + items.length) % items.length];
+              const sorted = getSortedNoteItems(filter);
+              if (!sorted.length) return;
+              const cur = sorted.findIndex(o => o.id === S.activeNote);
+              const next = sorted[((cur < 0 ? 0 : cur) + step + sorted.length) % sorted.length];
               selectNote(next.id);
               return;
+            }
+            // Keys outside input
+            if (!inInput) {
+              if (e.key === 'n') { e.preventDefault(); document.getElementById('note-new').click(); return; }
+              if (e.key === 'Enter' || e.key === 'e') { e.preventDefault(); enterNoteEdit(); return; }
+              if (e.key === 'p') { e.preventDefault(); toggleNotePreview(); return; }
             }
           }
           return;
@@ -3459,7 +3480,7 @@
           try {
             localStorage.setItem('ideaboard_v4', JSON.stringify({
               ideas: S.ideas, connectors: S.connectors, zones: S.zones, books: S.books,
-              nextId: S.nextId, pan: S.pan, zoom: S.zoom, theme: S.theme,
+              nextId: S.nextId, pan: S.pan, zoom: S.zoom, theme: S.theme, noteSort: S.noteSort,
               graphPos: S.graphPos
             }));
           } catch (e) { }
@@ -3474,7 +3495,7 @@
           Object.assign(S, {
             ideas: d.ideas || {}, connectors: d.connectors || [],
             zones: d.zones || [], books: d.books || [],
-            nextId: d.nextId || 1, pan: d.pan || S.pan, zoom: d.zoom || 1, theme: d.theme || 'dark',
+            nextId: d.nextId || 1, pan: d.pan || S.pan, zoom: d.zoom || 1, theme: d.theme || 'dark', noteSort: d.noteSort || 'az',
             graphPos: d.graphPos || {}
           });
           // normalize idea ids to numbers
@@ -3685,18 +3706,29 @@
         switchView('note');
       }
 
+      function getSortedNoteItems(filter = '') {
+        const f = filter.trim().toLowerCase();
+        let items = Object.values(S.ideas)
+          .map(o => ({ id: o.id, title: noteTitle(o), text: (o.text || '') }))
+          .filter(o => !f || o.title.toLowerCase().includes(f) || o.text.toLowerCase().includes(f));
+        if (S.noteSort === 'az') items.sort((a, b) => a.title.localeCompare(b.title, 'ja'));
+        else if (S.noteSort === 'za') items.sort((a, b) => b.title.localeCompare(a.title, 'ja'));
+        else if (S.noteSort === 'new') items.sort((a, b) => b.id - a.id);
+        else items.sort((a, b) => a.id - b.id);
+        return items;
+      }
       function renderNoteList(filter = '') {
         const box = document.getElementById('note-list-items');
-        const f = filter.trim().toLowerCase();
-        const items = Object.values(S.ideas)
-          .map(o => ({ id: o.id, title: noteTitle(o), text: (o.text || '') }))
-          .filter(o => !f || o.title.toLowerCase().includes(f) || o.text.toLowerCase().includes(f))
-          .sort((a, b) => a.title.localeCompare(b.title, 'ja'));
+        const items = getSortedNoteItems(filter !== undefined ? filter : document.getElementById('note-search').value);
         box.innerHTML = items.map(o =>
           `<div class="nl-item${o.id === S.activeNote ? ' active' : ''}" data-id="${o.id}">${esc(o.title)}</div>`
         ).join('') || '<div class="nlk-empty" style="padding:8px">該当なし</div>';
         box.querySelectorAll('.nl-item').forEach(el =>
           el.addEventListener('click', () => selectNote(+el.dataset.id)));
+        const activeEl = box.querySelector('.nl-item.active');
+        if (activeEl) activeEl.scrollIntoView({ block: 'nearest' });
+        const sb = document.getElementById('note-sort-btn');
+        if (sb) sb.textContent = { az: 'A→Z', za: 'Z→A', new: '新→古', old: '古→新' }[S.noteSort] || 'A→Z';
       }
 
       function selectNote(id) {
@@ -3797,7 +3829,8 @@
         const id = createNoteFromTitle('新規メモ', S.activeNote);
         renderNoteList();
         selectNote(id);
-        const ta = document.getElementById('note-ta'); ta.focus(); ta.select();
+        enterNoteEdit();
+        setTimeout(() => document.getElementById('note-ta').select(), 0);
       });
       // ── [[ ]] autocomplete ──
       const wlAutoEl = document.getElementById('wl-auto');
@@ -3875,12 +3908,24 @@
         renderNoteList(document.getElementById('note-search').value);
         renderNoteLinks();
       });
-      document.getElementById('note-toggle-prev').addEventListener('click', () => {
+      function toggleNotePreview() {
         S.notePreview = !S.notePreview;
         document.getElementById('note-ta').classList.toggle('hidden', S.notePreview);
         document.getElementById('note-preview').classList.toggle('hidden', !S.notePreview);
         document.getElementById('note-toggle-prev').textContent = S.notePreview ? '編集' : 'プレビュー';
         if (S.notePreview) renderNotePreview();
+        else document.getElementById('note-ta').focus();
+      }
+      function enterNoteEdit() {
+        if (S.notePreview) toggleNotePreview();
+        document.getElementById('note-ta').focus();
+      }
+      document.getElementById('note-toggle-prev').addEventListener('click', toggleNotePreview);
+      document.getElementById('note-sort-btn').addEventListener('click', () => {
+        const order = ['az', 'za', 'new', 'old'];
+        S.noteSort = order[(order.indexOf(S.noteSort) + 1) % order.length];
+        renderNoteList(document.getElementById('note-search').value);
+        save();
       });
       document.getElementById('note-open-board').addEventListener('click', () => {
         if (S.activeNote != null) navigateToNoteOnBoard(S.activeNote);
