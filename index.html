@@ -2025,7 +2025,20 @@
           (type === 'line' && epEq(c.from, toEp) && epEq(c.to, fromEp)));
         if (dup) {
           S.connectors = S.connectors.filter(c => c.id !== dup.id);
-          redrawConnectors(); save();
+          redrawConnectors();
+          // Remove wikilinks from notes when user-drawn connector is removed
+          if (dup.from.kind === 'idea' && dup.to.kind === 'idea') {
+            const fIdea = S.ideas[dup.from.id], tIdea = S.ideas[dup.to.id];
+            if (fIdea && tIdea) {
+              if (dup.type === 'line') {
+                removeLink(fIdea, noteTitle(tIdea)); updateActiveNote(fIdea.id);
+                removeLink(tIdea, noteTitle(fIdea)); updateActiveNote(tIdea.id);
+              } else if (dup.type === 'arrow') {
+                removeLink(fIdea, noteTitle(tIdea)); updateActiveNote(fIdea.id);
+              }
+            }
+          }
+          save();
           toast(`${endpointLabel(fromEp)} — ${endpointLabel(toEp)} の接続を削除`);
           return;
         }
@@ -2136,6 +2149,26 @@
       // ─── CONNECT ENDPOINTS (direct, no number lookup) ─────────────────────
       const epEqual = (a, b) => a && b && a.kind === b.kind && a.id === b.id;
 
+      function escRe(s) {
+        return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\      function connectEndpoints(fromEp, toEp, type) {');
+      }
+      function removeLink(idea, linkTitle) {
+        if (!idea || !linkTitle) return;
+        const link = `[[${linkTitle}]]`;
+        if (!(idea.text || '').includes(link)) return;
+        const re = new RegExp('\\n{1,2}' + escRe(link) + '(?=\\n|$)', 'g');
+        const re2 = new RegExp('(^|\\n)' + escRe(link) + '\\n{1,2}', 'g');
+        let text = (idea.text || '')
+          .replace(re, '')
+          .replace(re2, '$1')
+          .replace(new RegExp(escRe(link), 'g'), '');
+        idea.text = text.replace(/\n{3,}/g, '\n\n').trimEnd();
+      }
+      function updateActiveNote(ideaId) {
+        if (S.activeNote !== ideaId) return;
+        document.getElementById('note-ta').value = S.ideas[ideaId]?.text || '';
+        if (S.view === 'note') { renderNotePreview(); renderNoteLinks(); }
+      }
       function connectEndpoints(fromEp, toEp, type) {
         const dup = S.connectors.find(c =>
           (epEqual(c.from, fromEp) && epEqual(c.to, toEp)) ||
@@ -2309,7 +2342,7 @@
             // Ctrl+P: toggle preview from anywhere
             if (e.ctrlKey && e.key === 'p') { e.preventDefault(); toggleNotePreview(); return; }
             // Shift+[ ]: manual reorder
-            if (!inInput && e.shiftKey && (e.key === '[' || e.key === ']')) {
+            if (!inInput && e.shiftKey && (e.code === 'BracketLeft' || e.code === 'BracketRight')) {
               e.preventDefault();
               if (S.noteSort !== 'manual') {
                 S.noteOrder = getSortedNoteItems('').map(o => o.id);
@@ -2317,7 +2350,7 @@
               }
               const cur = S.noteOrder.indexOf(S.activeNote);
               if (cur >= 0) {
-                const nxt = e.key === '[' ? cur - 1 : cur + 1;
+                const nxt = e.code === 'BracketLeft' ? cur - 1 : cur + 1;
                 if (nxt >= 0 && nxt < S.noteOrder.length) {
                   [S.noteOrder[cur], S.noteOrder[nxt]] = [S.noteOrder[nxt], S.noteOrder[cur]];
                   save(); renderNoteList('');
@@ -2327,8 +2360,8 @@
             }
             // Navigation: Alt+↑↓ or [ ] outside input
             let step = 0;
-            if ((e.altKey && e.key === 'ArrowUp') || (!inInput && !e.shiftKey && e.key === '[')) step = -1;
-            if ((e.altKey && e.key === 'ArrowDown') || (!inInput && !e.shiftKey && e.key === ']')) step = 1;
+            if ((e.altKey && e.key === 'ArrowUp') || (!inInput && !e.shiftKey && e.code === 'BracketLeft')) step = -1;
+            if ((e.altKey && e.key === 'ArrowDown') || (!inInput && !e.shiftKey && e.code === 'BracketRight')) step = 1;
             if (step !== 0) {
               e.preventDefault();
               const filter = document.getElementById('note-search').value.trim().toLowerCase();
@@ -2342,7 +2375,7 @@
             // Keys outside input
             if (!inInput) {
               if (e.key === 'n') { e.preventDefault(); document.getElementById('note-new').click(); return; }
-              if (e.key === 'Enter' || e.key === 'e') { e.preventDefault(); enterNoteEdit(); return; }
+              if ((e.key === 'Enter' && !e.shiftKey) || e.key === 'e') { e.preventDefault(); enterNoteEdit(); return; }
               if (e.key === 'p') { e.preventDefault(); toggleNotePreview(); return; }
             }
           }
@@ -3995,7 +4028,7 @@
       });
       document.getElementById('note-ta').addEventListener('keydown', e => {
         // Shift+Enter: exit edit mode
-        if (e.key === 'Enter' && e.shiftKey && !wlA.active) { e.preventDefault(); document.getElementById('note-ta').blur(); return; }
+        if (e.key === 'Enter' && e.shiftKey && !wlA.active) { e.preventDefault(); e.stopPropagation(); document.getElementById('note-ta').blur(); return; }
         if (!wlA.active) return;
         if (e.key === 'ArrowDown') { e.preventDefault(); wlA.sel = (wlA.sel + 1) % wlA.items.length; wlRender(); }
         else if (e.key === 'ArrowUp') { e.preventDefault(); wlA.sel = (wlA.sel - 1 + wlA.items.length) % wlA.items.length; wlRender(); }
@@ -4003,6 +4036,29 @@
         else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); wlClose(); }
       });
       document.getElementById('note-ta').addEventListener('blur', () => {
+        // Sync 'link' type connectors with current wikilinks
+        const id = S.activeNote;
+        if (id && S.ideas[id]) {
+          const currentLinks = extractWikilinks(S.ideas[id].text || '');
+          const n = s => (s || '').trim().toLowerCase();
+          // Remove 'link' connectors for deleted wikilinks
+          const before = S.connectors.length;
+          S.connectors = S.connectors.filter(conn => {
+            if (conn.type !== 'link') return true;
+            if (!(conn.from.kind === 'idea' && conn.from.id === id && conn.to.kind === 'idea')) return true;
+            const toTitle = noteTitle(S.ideas[conn.to.id]);
+            return currentLinks.some(l => n(l) === n(toTitle));
+          });
+          // Add 'link' connectors for new wikilinks
+          currentLinks.forEach(linkTitle => {
+            const target = findIdeaByTitle(linkTitle);
+            if (!target || target.id === id) return;
+            if (!hasConnectorBetween(id, target.id)) {
+              S.connectors.push({ id: `c${S.nextId++}`, from: { kind: 'idea', id }, to: { kind: 'idea', id: target.id }, type: 'link' });
+            }
+          });
+          if (S.connectors.length !== before) { redrawConnectors(); save(); }
+        }
         setTimeout(wlClose, 120);
         renderNoteList(document.getElementById('note-search').value);
         renderNoteLinks();
