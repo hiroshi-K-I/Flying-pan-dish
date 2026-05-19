@@ -1280,6 +1280,20 @@
       border-color: var(--cyan);
     }
 
+    .nlk-back {
+      font-size: 9px;
+      color: var(--dim);
+      border: 1px solid var(--card-border);
+      border-radius: 3px;
+      padding: 1px 5px;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .nlk-back:hover {
+      color: var(--green);
+      border-color: var(--green);
+    }
+
     .nlk-empty {
       font-size: 10px;
       color: var(--dim);
@@ -1434,9 +1448,6 @@
       </div>
       <button class="tb-btn" id="theme-btn" title="テーマ切替">◑</button>
       <button class="tb-btn" onclick="App.exportMarkdown()">MD</button>
-      <button class="tb-btn" onclick="App.exportJSON()">JSON</button>
-      <button class="tb-btn" onclick="document.getElementById('imp').click()">IMPORT</button>
-      <input type="file" id="imp" accept=".json" style="display:none" onchange="App.importJSON(event)">
     </div>
   </div>
 
@@ -1451,7 +1462,11 @@
         <button class="vs-btn" data-view="graph">GRAPH</button>
       </div>
       <div style="margin-left:auto;display:flex;align-items:center;gap:6px;">
-        <span class="nt-hint">Ctrl+1/2/3 ビュー切替 &nbsp;|&nbsp; n 新規 &nbsp;|&nbsp; e 編集 &nbsp;|&nbsp; p プレビュー &nbsp;|&nbsp; Alt+↑↓ / [ ] メモ移動</span>
+        <span class="nt-hint">Ctrl+1/2/3 ビュー切替 &nbsp;|&nbsp; n 新規 &nbsp;|&nbsp; e 編集 &nbsp;|&nbsp; p プレビュー &nbsp;|&nbsp; Alt+↑↓/[ ] 移動</span>
+        <button class="nv-btn" id="note-txt-export" title="現在のメモをテキストファイルとして保存">TXT</button>
+        <button class="nv-btn" id="note-json-export" title="環境全体をJSONで保存">JSON出力</button>
+        <button class="nv-btn" id="note-json-import" title="JSONから読み込み">JSON読込</button>
+        <input type="file" id="note-imp" accept=".json" style="display:none">
         <button class="nv-btn" id="note-toggle-prev" title="編集/プレビュー切替">プレビュー</button>
         <button class="nv-btn" id="note-open-board">ボードで開く</button>
       </div>
@@ -3783,6 +3798,16 @@
         ${linked ? `<span class="nlk-link" data-link="${tid}">＋つなぐ</span>` : ''}
       </div>`;
         };
+        const mkBackItem = (tid) => {
+          const o = S.ideas[tid]; if (!o) return '';
+          const alreadyBack = noteOutlinks(id).some(l => l.target && l.target.id === tid);
+          const linked = !hasConnectorBetween(id, tid);
+          return `<div class="nlk-item" data-go="${tid}">
+        <span class="nlk-tx">${esc(noteTitle(o))}</span>
+        ${!alreadyBack ? `<span class="nlk-back" data-back="${tid}">← リンク追記</span>` : ''}
+        ${linked ? `<span class="nlk-link" data-link="${tid}">＋つなぐ</span>` : ''}
+      </div>`;
+        };
         const back = noteBacklinks(id);
         const conn = noteConnLinks(id);
         const out = noteOutlinks(id);
@@ -3792,8 +3817,8 @@
           l.target ? mkItem(l.target.id, true)
             : `<div class="nlk-item missing" data-new="${esc(l.title)}"><span class="nlk-tx" style="color:var(--pink)">${esc(l.title)}</span><span class="nlk-link">作成</span></div>`
         ).join('') : '<div class="nlk-empty">なし</div>';
-        h += `<div class="nlk-sec">バックリンク</div>`;
-        h += back.length ? back.map(b => mkItem(b, true)).join('') : '<div class="nlk-empty">なし</div>';
+        h += `<div class="nlk-sec">バックリンク <span style="font-size:9px;opacity:.6">（このメモへリンクしているメモ）</span></div>`;
+        h += back.length ? back.map(b => mkBackItem(b)).join('') : '<div class="nlk-empty">なし</div>';
         h += `<div class="nlk-sec">ボード接続</div>`;
         h += conn.length ? conn.map(c => mkItem(c, false)).join('') : '<div class="nlk-empty">なし</div>';
         box.innerHTML = h;
@@ -3801,6 +3826,19 @@
           const go = el.dataset.go, nw = el.dataset.new;
           el.addEventListener('click', e => {
             if (e.target.dataset.link) { materializeLink(id, +e.target.dataset.link); return; }
+            if (e.target.dataset.back) {
+              const backId = +e.target.dataset.back;
+              const o = S.ideas[id]; if (!o) return;
+              const backTitle = noteTitle(S.ideas[backId]);
+              const link = `[[${backTitle}]]`;
+              if (!(o.text || '').includes(link)) {
+                o.text = (o.text || '').trimEnd() + `\n\n${link}`;
+                document.getElementById('note-ta').value = o.text;
+                save(); renderNotePreview(); renderNoteLinks();
+                toast(`[[${backTitle}]] を追記しました`);
+              } else { toast('既にリンク済みです'); }
+              return;
+            }
             if (nw != null) { openWikilink(nw); return; }
             if (go != null) selectNote(+go);
           });
@@ -3931,6 +3969,13 @@
         if (S.activeNote != null) navigateToNoteOnBoard(S.activeNote);
         else switchView('board');
       });
+      document.getElementById('note-json-export').addEventListener('click', exportJSON);
+      document.getElementById('note-json-import').addEventListener('click', () =>
+        document.getElementById('note-imp').click());
+      document.getElementById('note-imp').addEventListener('change', ev => {
+        importJSON(ev);
+      });
+      document.getElementById('note-txt-export').addEventListener('click', exportCurrentNoteText);
 
       // ─── MARKDOWN EXPORT ──────────────────────────────────────────────────
       function exportMarkdown() {
@@ -4039,8 +4084,9 @@
       // ─── EXPORT / IMPORT ──────────────────────────────────────────────────
       function exportJSON() {
         const data = {
-          ideas: S.ideas, connectors: S.connectors, zones: S.zones, books: S.books, nextId: S.nextId,
-          meta: { exported: new Date().toISOString(), version: 3 }
+          ideas: S.ideas, connectors: S.connectors, zones: S.zones, books: S.books,
+          nextId: S.nextId, noteSort: S.noteSort,
+          meta: { exported: new Date().toISOString(), version: 4 }
         };
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
@@ -4056,7 +4102,12 @@
         reader.onload = e => {
           try {
             const d = JSON.parse(e.target.result);
-            Object.assign(S, { ideas: d.ideas || {}, connectors: d.connectors || [], zones: d.zones || [], books: d.books || [], nextId: d.nextId || 1 });
+            Object.assign(S, {
+              ideas: d.ideas || {}, connectors: d.connectors || [],
+              zones: d.zones || [], books: d.books || [],
+              nextId: d.nextId || 1,
+              noteSort: d.noteSort || S.noteSort
+            });
             const fixed = {};
             Object.entries(S.ideas).forEach(([k, v]) => { fixed[+k] = v; v.id = +v.id; });
             S.ideas = fixed;
@@ -4064,11 +4115,29 @@
               if (typeof c.from !== 'object') c.from = { kind: 'idea', id: +c.from };
               if (typeof c.to !== 'object') c.to = { kind: 'idea', id: +c.to };
             });
-            renderAll(); save(); toast('インポートしました');
+            renderAll(); save();
+            if (S.view === 'note') {
+              const first = Object.values(S.ideas)[0];
+              S.activeNote = first ? first.id : null;
+              renderNoteList(); selectNote(S.activeNote);
+            }
+            toast('インポートしました');
           } catch (ex) { toast('インポートに失敗しました'); }
         };
         reader.readAsText(file);
         ev.target.value = '';
+      }
+      function exportCurrentNoteText() {
+        const o = S.ideas[S.activeNote];
+        if (!o) { toast('エクスポートするメモを選択してください'); return; }
+        const title = noteTitle(o);
+        const filename = title.replace(/[\/\\?%*:|"<>]/g, '-') + '.md';
+        const blob = new Blob([o.text || ''], { type: 'text/markdown' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = filename;
+        a.click(); URL.revokeObjectURL(url);
+        toast(`${filename} をエクスポートしました`);
       }
 
       // ─── INIT ─────────────────────────────────────────────────────────────
@@ -4078,7 +4147,7 @@
         if (!hasSaved) toast('i でアイデアを作成、Enter で次々と連続入力  /  c で接続  /  f でジャンプ選択  /  Alt+ドラッグ でパン');
       })();
 
-      return { exportJSON, exportMarkdown, importJSON };
+      return { exportMarkdown };
     })();
   </script>
 </body>
