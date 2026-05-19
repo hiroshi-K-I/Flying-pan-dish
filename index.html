@@ -379,7 +379,18 @@ body {
 #note-main-top .nm-color { width:10px;height:10px;border-radius:50%;flex-shrink:0; }
 #note-main-top .nm-name { font-size:12px;font-weight:700;color:var(--text);flex:1;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
-#note-edit-area { flex:1;display:flex;overflow:hidden; }
+#note-edit-area { flex:1;display:flex;overflow:hidden;position:relative; }
+#wl-auto {
+  position:absolute;left:22px;bottom:14px;z-index:20;display:none;
+  background:var(--palette-bg);border:1px solid var(--card-border);border-radius:6px;
+  box-shadow:0 8px 30px rgba(0,0,0,.45);overflow:hidden;min-width:200px;max-width:340px;
+}
+#wl-auto.show { display:block; }
+#wl-auto .wla-hd { font-size:8px;letter-spacing:1px;color:var(--dim);padding:5px 10px 3px;text-transform:uppercase; }
+.wla-item { padding:6px 11px;font-size:11px;color:var(--dim);cursor:pointer;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+.wla-item:hover,.wla-item.sel { background:var(--card);color:var(--text); }
+.wla-item.create { color:var(--cyan);font-style:italic; }
 #note-ta {
   flex:1;background:var(--bg);border:none;outline:none;resize:none;
   font-family:inherit;font-size:13px;color:var(--text);line-height:1.7;
@@ -524,6 +535,7 @@ body {
       <div id="note-edit-area">
         <textarea id="note-ta" placeholder="# タイトル&#10;&#10;マークダウンで記述。[[別のメモ]] でリンク。" spellcheck="false"></textarea>
         <div id="note-preview" class="hidden"></div>
+        <div id="wl-auto"></div>
       </div>
     </div>
     <div id="note-links"></div>
@@ -2708,6 +2720,7 @@ const App = (() => {
     document.getElementById('note-color').style.background = COLOR_HEX[o.color||'purple'];
     const ta = document.getElementById('note-ta');
     ta.value = o.text || '';
+    wlClose();
     renderNotePreview();
     renderNoteList(document.getElementById('note-search').value);
     renderNoteLinks();
@@ -2792,14 +2805,80 @@ const App = (() => {
     selectNote(id);
     const ta = document.getElementById('note-ta'); ta.focus(); ta.select();
   });
+  // ── [[ ]] autocomplete ──
+  const wlAutoEl = document.getElementById('wl-auto');
+  const wlA = { active:false, start:-1, query:'', items:[], sel:0 };
+
+  function wlClose() {
+    wlA.active = false;
+    wlAutoEl.classList.remove('show');
+    wlAutoEl.innerHTML = '';
+  }
+  function wlScan(ta) {
+    const before = ta.value.slice(0, ta.selectionStart);
+    const m = before.match(/\[\[([^\[\]\n]*)$/);
+    if (!m) { wlClose(); return; }
+    wlA.start = ta.selectionStart - m[1].length - 2; // pos of '[['
+    wlA.query = m[1];
+    const q = m[1].trim().toLowerCase();
+    const titles = Object.values(S.ideas)
+      .filter(o => o.id !== S.activeNote)
+      .map(o => noteTitle(o))
+      .filter((t,i,a) => a.indexOf(t)===i && (!q || t.toLowerCase().includes(q)))
+      .sort((a,b) => a.localeCompare(b,'ja'))
+      .slice(0, 7);
+    const exact = titles.some(t => t.toLowerCase() === q);
+    wlA.items = titles.map(t => ({label:t, create:false}));
+    if (q && !exact) wlA.items.push({label:wlA.query.trim(), create:true});
+    if (!wlA.items.length) { wlClose(); return; }
+    wlA.sel = 0; wlA.active = true;
+    wlRender();
+  }
+  function wlRender() {
+    wlAutoEl.innerHTML = '<div class="wla-hd">[[ リンク ]]  ↑↓ 選択 / Enter 確定 / Esc</div>' +
+      wlA.items.map((it,i) =>
+        `<div class="wla-item${it.create?' create':''}${i===wlA.sel?' sel':''}" data-i="${i}">${
+          it.create ? `＋ 「${esc(it.label)}」を新規作成` : esc(it.label)
+        }</div>`).join('');
+    wlAutoEl.classList.add('show');
+    wlAutoEl.querySelectorAll('.wla-item').forEach(el =>
+      el.addEventListener('mousedown', ev => { ev.preventDefault(); wlConfirm(+el.dataset.i); }));
+  }
+  function wlConfirm(idx) {
+    const ta = document.getElementById('note-ta');
+    const it = wlA.items[idx]; if (!it) return;
+    const o = S.ideas[S.activeNote]; if (!o) return;
+    const after = ta.value.slice(ta.selectionStart);
+    const insert = `[[${it.label}]]`;
+    ta.value = ta.value.slice(0, wlA.start) + insert + after;
+    const caret = wlA.start + insert.length;
+    ta.setSelectionRange(caret, caret);
+    o.text = ta.value;
+    document.getElementById('note-name').textContent = noteTitle(o);
+    if (it.create && !findIdeaByTitle(it.label)) createNoteFromTitle(it.label, S.activeNote);
+    if (S.notePreview) renderNotePreview();
+    save();
+    wlClose();
+    ta.focus();
+  }
+
   document.getElementById('note-ta').addEventListener('input', e => {
     const o = S.ideas[S.activeNote]; if (!o) return;
     o.text = e.target.value;
     document.getElementById('note-name').textContent = noteTitle(o);
     if (S.notePreview) renderNotePreview();
     save();
+    wlScan(e.target);
+  });
+  document.getElementById('note-ta').addEventListener('keydown', e => {
+    if (!wlA.active) return;
+    if (e.key==='ArrowDown') { e.preventDefault(); wlA.sel=(wlA.sel+1)%wlA.items.length; wlRender(); }
+    else if (e.key==='ArrowUp') { e.preventDefault(); wlA.sel=(wlA.sel-1+wlA.items.length)%wlA.items.length; wlRender(); }
+    else if (e.key==='Enter'||e.key==='Tab') { e.preventDefault(); wlConfirm(wlA.sel); }
+    else if (e.key==='Escape') { e.preventDefault(); e.stopPropagation(); wlClose(); }
   });
   document.getElementById('note-ta').addEventListener('blur', () => {
+    setTimeout(wlClose, 120);
     renderNoteList(document.getElementById('note-search').value);
     renderNoteLinks();
   });
@@ -2851,6 +2930,16 @@ const App = (() => {
       childrenOf[parentId].push(childId);
       if (!parentOf[childId]) parentOf[childId] = parentId; // first parent wins
     });
+    // 2b. Add [[wikilink]] edges (A contains [[B]] → A is parent of B)
+    Object.values(S.ideas).forEach(a => {
+      extractWikilinks(a.text).forEach(title => {
+        const b = findIdeaByTitle(title);
+        if (!b || b.id === a.id) return;
+        if (!childrenOf[a.id]) childrenOf[a.id] = [];
+        if (!childrenOf[a.id].includes(b.id)) childrenOf[a.id].push(b.id);
+        if (!parentOf[b.id]) parentOf[b.id] = a.id;
+      });
+    });
 
     // 3. DFS printer
     const printed = new Set();
@@ -2860,7 +2949,7 @@ const App = (() => {
       const idea = S.ideas[id];
       if (!idea) return;
       const text = (idea.text || '').trim();
-      const firstLine = text.split('\n')[0] || '(空)';
+      const firstLine = (text.split('\n')[0] || '(空)').replace(/^#{1,6}\s*/, '');
       const rest = text.split('\n').slice(1).join('\n').trim();
       lines.push(`${indent}- ${firstLine}`);
       if (rest) rest.split('\n').forEach(l => lines.push(`${indent}  ${l}`));
