@@ -314,6 +314,117 @@ body {
 .connect-source { animation:connectPulse .9s ease-in-out infinite; }
 @keyframes connectPulse { 0%,100%{opacity:1}50%{opacity:.45} }
 
+/* ─── VIEW SWITCH ─── */
+#view-switch { display:flex;gap:0;border:1px solid var(--card-border);border-radius:5px;overflow:hidden; }
+.vs-btn {
+  background:var(--card);border:none;color:var(--dim);font-family:inherit;
+  font-size:9px;letter-spacing:1px;padding:4px 11px;cursor:pointer;transition:all .15s;
+}
+.vs-btn:not(:last-child) { border-right:1px solid var(--card-border); }
+.vs-btn:hover { color:var(--text); }
+.vs-btn.active { background:var(--purple);color:#fff; }
+
+/* ─── IDEA CARD MD PREVIEW ─── */
+.idea-title { font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px;line-height:1.35;word-break:break-word; }
+.idea-snip  { font-size:11px;color:var(--dim);line-height:1.5;word-break:break-word;
+  display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden;white-space:pre-wrap; }
+.idea-wl    { color:var(--cyan);font-weight:600; }
+.idea-doc-badge { position:absolute;top:6px;right:8px;font-size:9px;color:var(--dim);opacity:.6; }
+
+/* ─── NOTE VIEW ─── */
+#note-view {
+  position:fixed;inset:0;z-index:800;background:var(--bg);
+  display:none;flex-direction:column;
+}
+#note-view.show { display:flex; }
+#note-top {
+  display:flex;align-items:center;gap:12px;padding:8px 16px;
+  background:var(--header-bg);border-bottom:1px solid var(--header-border);flex-shrink:0;
+}
+#note-top .nt-title { font-size:11px;font-weight:700;letter-spacing:3px;color:var(--text);opacity:.4; }
+.nv-btn {
+  background:var(--card);border:1px solid var(--card-border);border-radius:4px;
+  color:var(--dim);font-family:inherit;font-size:9px;letter-spacing:1px;
+  padding:4px 10px;cursor:pointer;text-transform:uppercase;transition:all .15s;
+}
+.nv-btn:hover { color:var(--text);border-color:var(--purple); }
+#note-body { flex:1;display:flex;overflow:hidden; }
+#note-list {
+  width:230px;flex-shrink:0;border-right:1px solid var(--header-border);
+  display:flex;flex-direction:column;background:var(--header-bg);
+}
+#note-search {
+  margin:10px;padding:6px 9px;background:var(--card);border:1px solid var(--card-border);
+  border-radius:5px;color:var(--text);font-family:inherit;font-size:11px;outline:none;
+}
+#note-search:focus { border-color:var(--purple); }
+#note-list-items { flex:1;overflow-y:auto;padding:0 8px 10px; }
+.nl-item {
+  padding:7px 9px;border-radius:5px;cursor:pointer;font-size:11px;color:var(--dim);
+  margin-bottom:3px;border:1px solid transparent;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:all .12s;
+}
+.nl-item:hover { background:var(--card);color:var(--text); }
+.nl-item.active { background:var(--card);color:var(--text);border-color:var(--purple); }
+.nl-new {
+  margin:0 8px 10px;padding:7px;text-align:center;font-size:10px;letter-spacing:1px;
+  color:var(--dim);border:1px dashed var(--card-border);border-radius:5px;cursor:pointer;
+}
+.nl-new:hover { color:var(--text);border-color:var(--purple); }
+#note-main { flex:1;display:flex;flex-direction:column;overflow:hidden; }
+#note-main-top {
+  display:flex;align-items:center;gap:8px;padding:8px 14px;
+  border-bottom:1px solid var(--header-border);flex-shrink:0;
+}
+#note-main-top .nm-color { width:10px;height:10px;border-radius:50%;flex-shrink:0; }
+#note-main-top .nm-name { font-size:12px;font-weight:700;color:var(--text);flex:1;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+#note-edit-area { flex:1;display:flex;overflow:hidden; }
+#note-ta {
+  flex:1;background:var(--bg);border:none;outline:none;resize:none;
+  font-family:inherit;font-size:13px;color:var(--text);line-height:1.7;
+  padding:18px 22px;caret-color:var(--green);
+}
+#note-preview {
+  flex:1;overflow-y:auto;padding:18px 26px;border-left:1px solid var(--header-border);
+  font-size:13px;color:var(--text);line-height:1.7;
+}
+#note-preview.hidden,#note-ta.hidden { display:none; }
+#note-preview h1{font-size:20px;margin:14px 0 8px;font-weight:800;}
+#note-preview h2{font-size:16px;margin:13px 0 7px;font-weight:700;}
+#note-preview h3{font-size:14px;margin:12px 0 6px;font-weight:700;}
+#note-preview p{margin:7px 0;}
+#note-preview ul,#note-preview ol{margin:7px 0 7px 22px;}
+#note-preview li{margin:3px 0;}
+#note-preview code{background:var(--card);padding:1px 5px;border-radius:3px;font-size:12px;}
+#note-preview pre{background:var(--card);padding:10px 12px;border-radius:6px;overflow-x:auto;margin:9px 0;}
+#note-preview pre code{background:none;padding:0;}
+#note-preview blockquote{border-left:3px solid var(--purple);padding:2px 0 2px 12px;margin:8px 0;color:var(--dim);}
+#note-preview hr{border:none;border-top:1px solid var(--card-border);margin:14px 0;}
+#note-preview a{color:var(--cyan);text-decoration:none;}
+#note-preview a:hover{text-decoration:underline;}
+.wikilink{color:var(--cyan);cursor:pointer;border-bottom:1px dashed var(--cyan);}
+.wikilink.missing{color:var(--pink);border-color:var(--pink);}
+#note-links {
+  width:230px;flex-shrink:0;border-left:1px solid var(--header-border);
+  overflow-y:auto;padding:14px 12px;background:var(--header-bg);
+}
+.nlk-sec { font-size:9px;letter-spacing:2px;color:var(--dim);text-transform:uppercase;
+  margin:14px 0 7px;font-weight:700; }
+.nlk-sec:first-child { margin-top:0; }
+.nlk-item {
+  display:flex;align-items:center;gap:6px;padding:5px 7px;border-radius:4px;
+  font-size:11px;color:var(--dim);cursor:pointer;margin-bottom:2px;
+}
+.nlk-item:hover { background:var(--card);color:var(--text); }
+.nlk-item .nlk-tx { flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.nlk-link {
+  font-size:9px;color:var(--dim);border:1px solid var(--card-border);
+  border-radius:3px;padding:1px 5px;cursor:pointer;flex-shrink:0;
+}
+.nlk-link:hover { color:var(--cyan);border-color:var(--cyan); }
+.nlk-empty { font-size:10px;color:var(--dim);opacity:.5;font-style:italic; }
+
 /* ─── TOAST ─── */
 .toast {
   position:fixed;top:52px;right:18px;
@@ -351,11 +462,50 @@ body {
     <div class="hint"><span class="hk">s</span>整列</div>
   </div>
   <div id="toolbar">
+    <div id="view-switch">
+      <button class="vs-btn active" data-view="board">BOARD</button>
+      <button class="vs-btn" data-view="note">NOTE</button>
+      <button class="vs-btn" data-view="graph">GRAPH</button>
+    </div>
     <button class="tb-btn" id="theme-btn" title="テーマ切替">◑</button>
     <button class="tb-btn" onclick="App.exportMarkdown()">MD</button>
     <button class="tb-btn" onclick="App.exportJSON()">JSON</button>
     <button class="tb-btn" onclick="document.getElementById('imp').click()">IMPORT</button>
     <input type="file" id="imp" accept=".json" style="display:none" onchange="App.importJSON(event)">
+  </div>
+</div>
+
+<!-- ─── NOTE VIEW ─── -->
+<div id="note-view">
+  <div id="note-top">
+    <span class="nt-title">NOTE</span>
+    <div id="view-switch-n" style="display:flex;border:1px solid var(--card-border);border-radius:5px;overflow:hidden;">
+      <button class="vs-btn" data-view="board">BOARD</button>
+      <button class="vs-btn active" data-view="note">NOTE</button>
+      <button class="vs-btn" data-view="graph">GRAPH</button>
+    </div>
+    <div style="margin-left:auto;display:flex;gap:6px;">
+      <button class="nv-btn" id="note-toggle-prev" title="編集/プレビュー切替">プレビュー</button>
+      <button class="nv-btn" id="note-open-board">ボードで開く</button>
+    </div>
+  </div>
+  <div id="note-body">
+    <div id="note-list">
+      <input id="note-search" placeholder="🔍 メモを検索...">
+      <div id="note-list-items"></div>
+      <div class="nl-new" id="note-new">＋ 新規メモ</div>
+    </div>
+    <div id="note-main">
+      <div id="note-main-top">
+        <span class="nm-color" id="note-color"></span>
+        <span class="nm-name" id="note-name">メモを選択</span>
+      </div>
+      <div id="note-edit-area">
+        <textarea id="note-ta" placeholder="# タイトル&#10;&#10;マークダウンで記述。[[別のメモ]] でリンク。" spellcheck="false"></textarea>
+        <div id="note-preview" class="hidden"></div>
+      </div>
+    </div>
+    <div id="note-links"></div>
   </div>
 </div>
 
@@ -425,6 +575,9 @@ const App = (() => {
     moveSelection: [],     // {kind,id} objects accumulating for move
     lensMode: false,
     lensDepth: 1,
+    view: 'board',         // 'board'|'note'|'graph'
+    activeNote: null,      // idea id open in note view
+    notePreview: false,    // note view: show rendered preview
     theme: 'dark',
   };
 
@@ -585,6 +738,19 @@ const App = (() => {
     }
   }
 
+  function ideaCardHTML(obj) {
+    const raw = (obj.text||'').trim();
+    if (!raw) return `<div class="idea-body empty">アイデアを入力...</div>`;
+    const allLines = raw.split('\n');
+    const titleLine = (allLines.find(l=>l.trim())||'').replace(/^#{1,6}\s*/, '').trim();
+    const rest = allLines.slice(allLines.indexOf(allLines.find(l=>l.trim()))+1).join('\n').trim();
+    const wl = s => esc(s).replace(/\[\[([^\]]+)\]\]/g,'<span class="idea-wl">$1</span>');
+    const multi = rest.length > 0;
+    return `${multi?'<span class="idea-doc-badge" title="メモを開く">≡</span>':''}
+      <div class="idea-title">${wl(titleLine||'(無題)')}</div>
+      ${rest?`<div class="idea-snip">${wl(rest)}</div>`:''}`;
+  }
+
   function renderIdea(id, animate) {
     const obj = S.ideas[id];
     if (!obj) return;
@@ -612,8 +778,9 @@ const App = (() => {
     const isFocused = S.focused?.kind==='idea' && S.focused.id===id;
     applyIdeaBorder(el, obj, isFocused);
     if (isFocused) el.classList.add('focused');
-    el.innerHTML = `
-      <div class="idea-body${obj.text?'':' empty'}">${obj.text?esc(obj.text):'アイデアを入力...'}</div>`;
+    el.innerHTML = ideaCardHTML(obj);
+    const badge = el.querySelector('.idea-doc-badge');
+    if (badge) badge.addEventListener('click', e=>{ e.stopPropagation(); openNote(id); });
     if (animate) { el.classList.add('spring-in'); setTimeout(()=>el.classList.remove('spring-in'),400); }
     // Respect book visibility
     const booked = getBookedIdeas();
@@ -921,6 +1088,11 @@ const App = (() => {
       if (conn.type==='arrow') {
         path.setAttribute('marker-end',`url(#arr-${color})`);
         path.classList.add('conn-path');
+      } else if (conn.type==='link') {
+        // wikilink-materialized: faint dotted
+        path.setAttribute('stroke-dasharray','1 5');
+        path.setAttribute('stroke-linecap','round');
+        path.setAttribute('opacity','.45');
       } else {
         // line: dashed, no animation
         path.setAttribute('stroke-dasharray','5 3');
@@ -1055,6 +1227,16 @@ const App = (() => {
 
   // ─── KEYBOARD ─────────────────────────────────────────────────────────
   document.addEventListener('keydown', e=>{
+    // Note view: native input behavior, Escape returns to board
+    if (S.view !== 'board') {
+      if (e.key==='Escape') {
+        const ae = document.activeElement;
+        if (ae && (ae.id==='note-ta' || ae.id==='note-search')) { ae.blur(); return; }
+        switchView('board');
+      }
+      return;
+    }
+
     if (e.key==='Tab') {
       e.preventDefault();
       if (S.mode==='select') {
@@ -1193,6 +1375,11 @@ const App = (() => {
         unbookOrDetach();
         break;
       case 'p': e.preventDefault(); openPalette(); break;
+      case 'n':
+        e.preventDefault();
+        if (S.focused?.kind==='idea') openNote(S.focused.id);
+        else openNote(null);
+        break;
       case 'l':
         e.preventDefault();
         if (S.lensMode) exitLensMode(); else enterLensMode();
@@ -1957,7 +2144,7 @@ const App = (() => {
     clearTimeout(saveTimer);
     saveTimer=setTimeout(()=>{
       try {
-        localStorage.setItem('ideaboard_v3',JSON.stringify({
+        localStorage.setItem('ideaboard_v4',JSON.stringify({
           ideas:S.ideas,connectors:S.connectors,zones:S.zones,books:S.books,
           nextId:S.nextId,pan:S.pan,zoom:S.zoom,theme:S.theme
         }));
@@ -1967,7 +2154,7 @@ const App = (() => {
 
   function loadSaved() {
     try {
-      const raw=localStorage.getItem('ideaboard_v3');
+      const raw=localStorage.getItem('ideaboard_v4')||localStorage.getItem('ideaboard_v3');
       if(!raw)return false;
       const d=JSON.parse(raw);
       Object.assign(S,{
@@ -2000,6 +2187,290 @@ const App = (() => {
     document.body.classList.toggle('light',S.theme==='light');
     document.getElementById('theme-btn').textContent=S.theme==='dark'?'◑':'◐';
   }
+
+  // ─── NOTE SYSTEM ──────────────────────────────────────────────────────
+  function noteTitle(idea) {
+    const t = (idea?.text||'').trim();
+    if (!t) return '(無題)';
+    let first = t.split('\n').find(l => l.trim()) || '';
+    first = first.replace(/^#{1,6}\s*/, '').trim();
+    return (first.slice(0, 80) || '(無題)');
+  }
+  function findIdeaByTitle(title) {
+    const n = s => (s||'').trim().toLowerCase();
+    const tn = n(title);
+    return Object.values(S.ideas).find(o => n(noteTitle(o)) === tn) || null;
+  }
+  function extractWikilinks(text) {
+    const out = [], re = /\[\[([^\]\n]+)\]\]/g; let m;
+    while ((m = re.exec(text||''))) {
+      const t = m[1].trim();
+      if (t && !out.includes(t)) out.push(t);
+    }
+    return out;
+  }
+
+  // Minimal dependency-free markdown renderer (escape-first)
+  function mdRender(src) {
+    src = String(src||'');
+    const blocks = [];
+    // fenced code
+    src = src.replace(/```([\s\S]*?)```/g, (_, c) => {
+      blocks.push(`<pre><code>${esc(c.replace(/^\n/,''))}</code></pre>`);
+      return ` B${blocks.length-1} `;
+    });
+    const lines = src.split('\n');
+    let html = '', listType = null;
+    const closeList = () => { if (listType) { html += `</${listType}>`; listType = null; } };
+    const inline = s => {
+      s = esc(s);
+      s = s.replace(/\[\[([^\]]+)\]\]/g, (_, t) => {
+        t = t.trim();
+        const found = findIdeaByTitle(t);
+        return `<span class="wikilink${found?'':' missing'}" data-wl="${esc(t)}">${esc(t)}</span>`;
+      });
+      s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+      s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+      s = s.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
+      s = s.replace(/(^|[^_])_([^_\n]+)_/g, '$1<em>$2</em>');
+      s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+        '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+      return s;
+    };
+    for (let raw of lines) {
+      const line = raw.replace(/\r$/, '');
+      const ph = line.match(/^ B(\d+) $/);
+      if (ph) { closeList(); html += blocks[+ph[1]]; continue; }
+      if (/^\s*$/.test(line)) { closeList(); continue; }
+      let m;
+      if ((m = line.match(/^(#{1,6})\s+(.*)$/))) {
+        closeList(); html += `<h${m[1].length}>${inline(m[2])}</h${m[1].length}>`; continue;
+      }
+      if (/^\s*([-*_])\s*\1\s*\1[\s\1]*$/.test(line)) { closeList(); html += '<hr>'; continue; }
+      if ((m = line.match(/^>\s?(.*)$/))) { closeList(); html += `<blockquote>${inline(m[1])}</blockquote>`; continue; }
+      if ((m = line.match(/^\s*[-*+]\s+(.*)$/))) {
+        if (listType !== 'ul') { closeList(); html += '<ul>'; listType = 'ul'; }
+        html += `<li>${inline(m[1])}</li>`; continue;
+      }
+      if ((m = line.match(/^\s*\d+\.\s+(.*)$/))) {
+        if (listType !== 'ol') { closeList(); html += '<ol>'; listType = 'ol'; }
+        html += `<li>${inline(m[1])}</li>`; continue;
+      }
+      closeList(); html += `<p>${inline(line)}</p>`;
+    }
+    closeList();
+    return html;
+  }
+
+  // Links for a given idea id
+  function noteBacklinks(id) {
+    const title = noteTitle(S.ideas[id]);
+    const n = s => (s||'').trim().toLowerCase();
+    const tn = n(title);
+    const out = [];
+    Object.values(S.ideas).forEach(o => {
+      if (o.id === id) return;
+      if (extractWikilinks(o.text).some(w => n(w) === tn)) out.push(o.id);
+    });
+    return out;
+  }
+  function noteConnLinks(id) {
+    const ids = new Set();
+    S.connectors.forEach(c => {
+      if (c.from.kind==='idea' && c.to.kind==='idea') {
+        if (c.from.id===id) ids.add(c.to.id);
+        else if (c.to.id===id) ids.add(c.from.id);
+      }
+    });
+    return [...ids];
+  }
+  function noteOutlinks(id) {
+    return extractWikilinks(S.ideas[id]?.text).map(t => ({ title:t, target:findIdeaByTitle(t) }));
+  }
+  function hasConnectorBetween(a, b) {
+    return S.connectors.some(c =>
+      c.from.kind==='idea'&&c.to.kind==='idea' &&
+      ((c.from.id===a&&c.to.id===b)||(c.from.id===b&&c.to.id===a)));
+  }
+  function materializeLink(fromId, toId) {
+    if (hasConnectorBetween(fromId, toId)) { toast('既に接続済みです'); return; }
+    S.connectors.push({id:`c${S.nextId++}`, from:{kind:'idea',id:fromId}, to:{kind:'idea',id:toId}, type:'link'});
+    redrawConnectors(); save();
+    toast('ボード上でリンクを接続しました');
+    if (S.view==='note') renderNoteLinks();
+  }
+  function createNoteFromTitle(title, nearId) {
+    const base = nearId!=null ? S.ideas[nearId] : null;
+    const x = base ? base.x + 60 : 400;
+    const y = base ? base.y + 120 : 300;
+    const id = S.nextId++;
+    S.ideas[id] = {id, x, y, text:`# ${title}\n\n`, color: base?.color || 'purple'};
+    renderIdea(id);
+    save(); updateStat();
+    return id;
+  }
+
+  // ─── VIEW SWITCH ──────────────────────────────────────────────────────
+  const noteView = document.getElementById('note-view');
+  function switchView(v) {
+    S.view = v;
+    document.querySelectorAll('.vs-btn').forEach(b =>
+      b.classList.toggle('active', b.dataset.view===v));
+    if (v==='note') {
+      noteView.classList.add('show');
+      if (!S.activeNote || !S.ideas[S.activeNote]) {
+        const first = Object.values(S.ideas)[0];
+        S.activeNote = first ? first.id : null;
+      }
+      renderNoteList();
+      selectNote(S.activeNote);
+    } else {
+      noteView.classList.remove('show');
+    }
+    if (v==='graph') { switchView('board'); toast('GRAPHビューは Phase 2 で実装予定です'); return; }
+    if (v==='board') { renderAll(); }
+  }
+
+  function openNote(id) {
+    if (id!=null && S.ideas[id]) S.activeNote = id;
+    switchView('note');
+  }
+
+  function renderNoteList(filter='') {
+    const box = document.getElementById('note-list-items');
+    const f = filter.trim().toLowerCase();
+    const items = Object.values(S.ideas)
+      .map(o => ({id:o.id, title:noteTitle(o), text:(o.text||'')}))
+      .filter(o => !f || o.title.toLowerCase().includes(f) || o.text.toLowerCase().includes(f))
+      .sort((a,b) => a.title.localeCompare(b.title, 'ja'));
+    box.innerHTML = items.map(o =>
+      `<div class="nl-item${o.id===S.activeNote?' active':''}" data-id="${o.id}">${esc(o.title)}</div>`
+    ).join('') || '<div class="nlk-empty" style="padding:8px">該当なし</div>';
+    box.querySelectorAll('.nl-item').forEach(el =>
+      el.addEventListener('click', () => selectNote(+el.dataset.id)));
+  }
+
+  function selectNote(id) {
+    if (id==null || !S.ideas[id]) {
+      S.activeNote = null;
+      document.getElementById('note-name').textContent = 'メモがありません';
+      document.getElementById('note-ta').value = '';
+      document.getElementById('note-preview').innerHTML = '';
+      document.getElementById('note-links').innerHTML = '';
+      return;
+    }
+    S.activeNote = id;
+    const o = S.ideas[id];
+    document.getElementById('note-name').textContent = noteTitle(o);
+    document.getElementById('note-color').style.background = COLOR_HEX[o.color||'purple'];
+    const ta = document.getElementById('note-ta');
+    ta.value = o.text || '';
+    renderNotePreview();
+    renderNoteList(document.getElementById('note-search').value);
+    renderNoteLinks();
+  }
+
+  function renderNotePreview() {
+    const o = S.ideas[S.activeNote]; if (!o) return;
+    const pv = document.getElementById('note-preview');
+    pv.innerHTML = mdRender(o.text);
+    pv.querySelectorAll('.wikilink').forEach(el =>
+      el.addEventListener('click', () => openWikilink(el.dataset.wl)));
+  }
+
+  function openWikilink(title) {
+    let t = findIdeaByTitle(title);
+    if (!t) {
+      const id = createNoteFromTitle(title, S.activeNote);
+      renderNoteList(document.getElementById('note-search').value);
+      selectNote(id);
+    } else {
+      selectNote(t.id);
+    }
+  }
+
+  function renderNoteLinks() {
+    const id = S.activeNote;
+    const box = document.getElementById('note-links');
+    if (id==null) { box.innerHTML=''; return; }
+    const mkItem = (tid, withConnect) => {
+      const o = S.ideas[tid]; if (!o) return '';
+      const linked = withConnect && !hasConnectorBetween(id, tid);
+      return `<div class="nlk-item" data-go="${tid}">
+        <span class="nlk-tx">${esc(noteTitle(o))}</span>
+        ${linked?`<span class="nlk-link" data-link="${tid}">＋つなぐ</span>`:''}
+      </div>`;
+    };
+    const back = noteBacklinks(id);
+    const conn = noteConnLinks(id);
+    const out  = noteOutlinks(id);
+    let h = '';
+    h += `<div class="nlk-sec">発リンク [[ ]]</div>`;
+    h += out.length ? out.map(l =>
+      l.target ? mkItem(l.target.id, true)
+               : `<div class="nlk-item missing" data-new="${esc(l.title)}"><span class="nlk-tx" style="color:var(--pink)">${esc(l.title)}</span><span class="nlk-link">作成</span></div>`
+      ).join('') : '<div class="nlk-empty">なし</div>';
+    h += `<div class="nlk-sec">バックリンク</div>`;
+    h += back.length ? back.map(b => mkItem(b, true)).join('') : '<div class="nlk-empty">なし</div>';
+    h += `<div class="nlk-sec">ボード接続</div>`;
+    h += conn.length ? conn.map(c => mkItem(c, false)).join('') : '<div class="nlk-empty">なし</div>';
+    box.innerHTML = h;
+    box.querySelectorAll('.nlk-item').forEach(el => {
+      const go = el.dataset.go, nw = el.dataset.new;
+      el.addEventListener('click', e => {
+        if (e.target.dataset.link) { materializeLink(id, +e.target.dataset.link); return; }
+        if (nw!=null) { openWikilink(nw); return; }
+        if (go!=null) selectNote(+go);
+      });
+    });
+  }
+
+  function navigateToNoteOnBoard(id) {
+    switchView('board');
+    const o = S.ideas[id]; if (!o) return;
+    const el = getEl('idea', id);
+    const w = el?el.offsetWidth:160, h = el?el.offsetHeight:80;
+    const r = boardWrap.getBoundingClientRect();
+    S.zoom = Math.min(Math.max(S.zoom,1),1.4);
+    S.pan.x = r.width/2 - (o.x + w/2)*S.zoom;
+    S.pan.y = r.height/2 - (o.y + h/2)*S.zoom;
+    applyXform(); redrawConnectors();
+    focus('idea', id);
+  }
+
+  // Note view wiring
+  document.querySelectorAll('.vs-btn').forEach(b =>
+    b.addEventListener('click', () => switchView(b.dataset.view)));
+  document.getElementById('note-search').addEventListener('input', e =>
+    renderNoteList(e.target.value));
+  document.getElementById('note-new').addEventListener('click', () => {
+    const id = createNoteFromTitle('新規メモ', S.activeNote);
+    renderNoteList();
+    selectNote(id);
+    const ta = document.getElementById('note-ta'); ta.focus(); ta.select();
+  });
+  document.getElementById('note-ta').addEventListener('input', e => {
+    const o = S.ideas[S.activeNote]; if (!o) return;
+    o.text = e.target.value;
+    document.getElementById('note-name').textContent = noteTitle(o);
+    if (S.notePreview) renderNotePreview();
+    save();
+  });
+  document.getElementById('note-ta').addEventListener('blur', () => {
+    renderNoteList(document.getElementById('note-search').value);
+    renderNoteLinks();
+  });
+  document.getElementById('note-toggle-prev').addEventListener('click', () => {
+    S.notePreview = !S.notePreview;
+    document.getElementById('note-ta').classList.toggle('hidden', S.notePreview);
+    document.getElementById('note-preview').classList.toggle('hidden', !S.notePreview);
+    document.getElementById('note-toggle-prev').textContent = S.notePreview ? '編集' : 'プレビュー';
+    if (S.notePreview) renderNotePreview();
+  });
+  document.getElementById('note-open-board').addEventListener('click', () => {
+    if (S.activeNote!=null) navigateToNoteOnBoard(S.activeNote);
+    else switchView('board');
+  });
 
   // ─── MARKDOWN EXPORT ──────────────────────────────────────────────────
   function exportMarkdown() {
