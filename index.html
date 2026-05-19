@@ -1590,7 +1590,8 @@
         view: 'board',         // 'board'|'note'|'graph'
         activeNote: null,      // idea id open in note view
         notePreview: false,    // note view: show rendered preview
-        noteSort: 'az',         // 'az'|'za'|'new'|'old'
+        noteSort: 'az',         // 'az'|'za'|'new'|'old'|'manual'
+        noteOrder: [],           // manual sort order (array of idea IDs)
         graphPos: {},          // 'kind:id' → {x,y}
         gPan: { x: 0, y: 0 },
         gZoom: 1,
@@ -1671,7 +1672,7 @@
       }
 
       function applyBookBorder(el, bk, focused) {
-        const hex = COLOR_HEX[bk.color || 'amber'];
+        const hex = COLOR_HEX[bk.color || 'purple'];
         const card = el.querySelector('.book-card');
         if (!card) return;
         card.style.borderColor = focused ? hex : '';
@@ -1960,7 +1961,7 @@
         }
         el.style.left = bk.x + 'px'; el.style.top = bk.y + 'px';
         const numPart = id.replace('bk', '');
-        const bkhex = COLOR_HEX[bk.color || 'amber'];
+        const bkhex = COLOR_HEX[bk.color || 'purple'];
         // First child's text becomes the book title
         const firstChild = bk.children[0] ? S.ideas[bk.children[0]] : null;
         const titleText = firstChild?.text
@@ -2039,7 +2040,20 @@
         let el;
         if (ep.kind === 'idea') {
           el = document.getElementById(`idea-${ep.id}`);
-          if (!el || el.style.display === 'none') return null;
+          if (!el) return null;
+          if (el.style.display === 'none') {
+            // If this idea is the first child of a book, proxy to the book position
+            for (const bk of S.books) {
+              if (bk.children.length > 0 && bk.children[0] === ep.id) {
+                const bkEl = document.getElementById(`book-${bk.id}`);
+                if (!bkEl) return null;
+                const bx = parseFloat(bkEl.style.left) + bkEl.offsetWidth / 2;
+                const by = parseFloat(bkEl.style.top) + bkEl.offsetHeight / 2;
+                return b2s(bx, by);
+              }
+            }
+            return null; // non-first children: hide connector
+          }
         } else if (ep.kind === 'zone') {
           el = document.getElementById(`zone-${ep.id}`);
           if (!el) return null;
@@ -2076,7 +2090,7 @@
         if (!ep) return 'purple';
         if (ep.kind === 'idea') return (S.ideas[ep.id] || {}).color || 'purple';
         if (ep.kind === 'zone') return (S.zones.find(z => z.id === ep.id) || {}).color || 'cyan';
-        if (ep.kind === 'book') return (S.books.find(b => b.id === ep.id) || {}).color || 'amber';
+        if (ep.kind === 'book') return (S.books.find(b => b.id === ep.id) || {}).color || 'purple';
         return 'purple';
       }
 
@@ -2134,7 +2148,30 @@
         }
         const id = `c${S.nextId++}`;
         S.connectors.push({ id, from: fromEp, to: toEp, type });
-        redrawConnectors(); save();
+        redrawConnectors();
+        // Sync wikilinks for idea-to-idea connections
+        if (fromEp.kind === 'idea' && toEp.kind === 'idea') {
+          const fIdea = S.ideas[fromEp.id], tIdea = S.ideas[toEp.id];
+          if (fIdea && tIdea) {
+            const insertLink = (idea, linkTitle) => {
+              const link = `[[${linkTitle}]]`;
+              if (!(idea.text || '').includes(link)) {
+                idea.text = (idea.text || '').trimEnd() + `\n\n${link}`;
+                if (S.activeNote === idea.id) {
+                  document.getElementById('note-ta').value = idea.text;
+                  if (S.view === 'note') { renderNotePreview(); renderNoteLinks(); }
+                }
+              }
+            };
+            if (type === 'line') {
+              insertLink(fIdea, noteTitle(tIdea));
+              insertLink(tIdea, noteTitle(fIdea));
+            } else if (type === 'arrow') {
+              insertLink(fIdea, noteTitle(tIdea));
+            }
+          }
+        }
+        save();
         toast(`${endpointLabel(fromEp)} ${type === 'arrow' ? '→' : '—'} ${endpointLabel(toEp)} を接続`);
       }
 
@@ -2271,10 +2308,27 @@
             const inInput = inTA || inSearch;
             // Ctrl+P: toggle preview from anywhere
             if (e.ctrlKey && e.key === 'p') { e.preventDefault(); toggleNotePreview(); return; }
+            // Shift+[ ]: manual reorder
+            if (!inInput && e.shiftKey && (e.key === '[' || e.key === ']')) {
+              e.preventDefault();
+              if (S.noteSort !== 'manual') {
+                S.noteOrder = getSortedNoteItems('').map(o => o.id);
+                S.noteSort = 'manual';
+              }
+              const cur = S.noteOrder.indexOf(S.activeNote);
+              if (cur >= 0) {
+                const nxt = e.key === '[' ? cur - 1 : cur + 1;
+                if (nxt >= 0 && nxt < S.noteOrder.length) {
+                  [S.noteOrder[cur], S.noteOrder[nxt]] = [S.noteOrder[nxt], S.noteOrder[cur]];
+                  save(); renderNoteList('');
+                }
+              }
+              return;
+            }
             // Navigation: Alt+↑↓ or [ ] outside input
             let step = 0;
-            if ((e.altKey && e.key === 'ArrowUp') || (!inInput && e.key === '[')) step = -1;
-            if ((e.altKey && e.key === 'ArrowDown') || (!inInput && e.key === ']')) step = 1;
+            if ((e.altKey && e.key === 'ArrowUp') || (!inInput && !e.shiftKey && e.key === '[')) step = -1;
+            if ((e.altKey && e.key === 'ArrowDown') || (!inInput && !e.shiftKey && e.key === ']')) step = 1;
             if (step !== 0) {
               e.preventDefault();
               const filter = document.getElementById('note-search').value.trim().toLowerCase();
@@ -2822,7 +2876,7 @@
 
       function graphEdgeColor(e) {
         if (e.from.kind === 'idea') return S.ideas[e.from.id]?.color || 'purple';
-        if (e.from.kind === 'book') return S.books.find(b => b.id === e.from.id)?.color || 'amber';
+        if (e.from.kind === 'book') return S.books.find(b => b.id === e.from.id)?.color || 'purple';
         return 'purple';
       }
 
@@ -2883,7 +2937,7 @@
             lbl.textContent = tt.slice(0, 20) + (tt.length > 20 ? '…' : ''); g.appendChild(lbl);
           } else {
             const bk = S.books.find(b => b.id === n.id);
-            const col = COLOR_HEX[bk?.color || 'amber'];
+            const col = COLOR_HEX[bk?.color || 'purple'];
             const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
             rect.setAttribute('x', '-24'); rect.setAttribute('y', '-14');
             rect.setAttribute('width', '48'); rect.setAttribute('height', '28'); rect.setAttribute('rx', '6');
@@ -3096,7 +3150,7 @@
         const mx = (fromObj.x + toObj.x) / 2 + (Math.random() - .5) * 40;
         const my = (fromObj.y + toObj.y) / 2 - 50;
         const id = S.nextId++;
-        S.ideas[id] = { id, x: mx, y: my, text: '', color: 'green' };
+        S.ideas[id] = { id, x: mx, y: my, text: '', color: 'purple' };
         renderIdea(id, true);
         const bridgeEp = { kind: 'idea', id };
         S.connectors.push({ id: `c${S.nextId++}`, from: fromEp, to: bridgeEp, type: 'line' });
@@ -3431,6 +3485,7 @@
         };
         if (kind === 'idea') {
           delete S.ideas[id];
+          S.noteOrder = S.noteOrder.filter(oid => oid !== id);
           rmConns();
           S.books.forEach(b => { b.children = b.children.filter(c => c !== id); });
           S.books.forEach(b => renderBook(b.id));
@@ -3495,7 +3550,7 @@
           try {
             localStorage.setItem('ideaboard_v4', JSON.stringify({
               ideas: S.ideas, connectors: S.connectors, zones: S.zones, books: S.books,
-              nextId: S.nextId, pan: S.pan, zoom: S.zoom, theme: S.theme, noteSort: S.noteSort,
+              nextId: S.nextId, pan: S.pan, zoom: S.zoom, theme: S.theme, noteSort: S.noteSort, noteOrder: S.noteOrder,
               graphPos: S.graphPos
             }));
           } catch (e) { }
@@ -3510,7 +3565,7 @@
           Object.assign(S, {
             ideas: d.ideas || {}, connectors: d.connectors || [],
             zones: d.zones || [], books: d.books || [],
-            nextId: d.nextId || 1, pan: d.pan || S.pan, zoom: d.zoom || 1, theme: d.theme || 'dark', noteSort: d.noteSort || 'az',
+            nextId: d.nextId || 1, pan: d.pan || S.pan, zoom: d.zoom || 1, theme: d.theme || 'dark', noteSort: d.noteSort || 'az', noteOrder: d.noteOrder || [],
             graphPos: d.graphPos || {}
           });
           // normalize idea ids to numbers
@@ -3687,6 +3742,7 @@
         const y = base ? base.y + 120 : 300;
         const id = S.nextId++;
         S.ideas[id] = { id, x, y, text: `# ${title}\n\n`, color: base?.color || 'purple' };
+        if (!S.noteOrder.includes(id)) S.noteOrder.push(id);
         renderIdea(id);
         save(); updateStat();
         return id;
@@ -3729,7 +3785,10 @@
         if (S.noteSort === 'az') items.sort((a, b) => a.title.localeCompare(b.title, 'ja'));
         else if (S.noteSort === 'za') items.sort((a, b) => b.title.localeCompare(a.title, 'ja'));
         else if (S.noteSort === 'new') items.sort((a, b) => b.id - a.id);
-        else items.sort((a, b) => a.id - b.id);
+        else if (S.noteSort === 'manual') {
+          const orderMap = new Map(S.noteOrder.map((id, i) => [id, i]));
+          items.sort((a, b) => (orderMap.has(a.id) ? orderMap.get(a.id) : 9999) - (orderMap.has(b.id) ? orderMap.get(b.id) : 9999));
+        } else items.sort((a, b) => a.id - b.id);
         return items;
       }
       function renderNoteList(filter = '') {
@@ -3743,7 +3802,7 @@
         const activeEl = box.querySelector('.nl-item.active');
         if (activeEl) activeEl.scrollIntoView({ block: 'nearest' });
         const sb = document.getElementById('note-sort-btn');
-        if (sb) sb.textContent = { az: 'A→Z', za: 'Z→A', new: '新→古', old: '古→新' }[S.noteSort] || 'A→Z';
+        if (sb) sb.textContent = { az: 'A→Z', za: 'Z→A', new: '新→古', old: '古→新', manual: '手動' }[S.noteSort] || 'A→Z';
       }
 
       function selectNote(id) {
@@ -3935,6 +3994,8 @@
         wlScan(e.target);
       });
       document.getElementById('note-ta').addEventListener('keydown', e => {
+        // Shift+Enter: exit edit mode
+        if (e.key === 'Enter' && e.shiftKey && !wlA.active) { e.preventDefault(); document.getElementById('note-ta').blur(); return; }
         if (!wlA.active) return;
         if (e.key === 'ArrowDown') { e.preventDefault(); wlA.sel = (wlA.sel + 1) % wlA.items.length; wlRender(); }
         else if (e.key === 'ArrowUp') { e.preventDefault(); wlA.sel = (wlA.sel - 1 + wlA.items.length) % wlA.items.length; wlRender(); }
@@ -4085,7 +4146,7 @@
       function exportJSON() {
         const data = {
           ideas: S.ideas, connectors: S.connectors, zones: S.zones, books: S.books,
-          nextId: S.nextId, noteSort: S.noteSort,
+          nextId: S.nextId, noteSort: S.noteSort, noteOrder: S.noteOrder,
           meta: { exported: new Date().toISOString(), version: 4 }
         };
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -4106,7 +4167,8 @@
               ideas: d.ideas || {}, connectors: d.connectors || [],
               zones: d.zones || [], books: d.books || [],
               nextId: d.nextId || 1,
-              noteSort: d.noteSort || S.noteSort
+              noteSort: d.noteSort || S.noteSort,
+              noteOrder: d.noteOrder || []
             });
             const fixed = {};
             Object.entries(S.ideas).forEach(([k, v]) => { fixed[+k] = v; v.id = +v.id; });
