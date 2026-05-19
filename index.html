@@ -425,6 +425,27 @@ body {
 .nlk-link:hover { color:var(--cyan);border-color:var(--cyan); }
 .nlk-empty { font-size:10px;color:var(--dim);opacity:.5;font-style:italic; }
 
+/* ─── GRAPH VIEW ─── */
+#graph-view {
+  position:fixed;inset:0;z-index:800;background:var(--bg);
+  display:none;flex-direction:column;
+}
+#graph-view.show { display:flex; }
+#graph-top {
+  display:flex;align-items:center;gap:12px;padding:8px 16px;
+  background:var(--header-bg);border-bottom:1px solid var(--header-border);flex-shrink:0;
+}
+#graph-svg { flex:1;cursor:grab;display:block; }
+#graph-svg.gp { cursor:grabbing; }
+.gnode { cursor:pointer; }
+.gnode text { pointer-events:none;font-family:'JetBrains Mono','Fira Code',monospace;fill:var(--text); }
+.gnode.dim { opacity:.1; transition:opacity .2s; }
+.gnode circle,.gnode rect { transition:filter .2s; }
+.gnode:not(.dim):hover circle,.gnode:not(.dim):hover rect { filter:brightness(1.25); }
+.gedge { pointer-events:none; }
+.gedge.dim { opacity:.06; transition:opacity .2s; }
+#graph-live-lbl { font-size:10px;color:var(--dim);display:flex;align-items:center;gap:5px; }
+
 /* ─── TOAST ─── */
 .toast {
   position:fixed;top:52px;right:18px;
@@ -509,6 +530,32 @@ body {
   </div>
 </div>
 
+<!-- ─── GRAPH VIEW ─── -->
+<div id="graph-view">
+  <div id="graph-top">
+    <span class="nt-title">GRAPH</span>
+    <div style="display:flex;border:1px solid var(--card-border);border-radius:5px;overflow:hidden;">
+      <button class="vs-btn" data-view="board">BOARD</button>
+      <button class="vs-btn" data-view="note">NOTE</button>
+      <button class="vs-btn active" data-view="graph">GRAPH</button>
+    </div>
+    <label id="graph-live-lbl">
+      <input type="checkbox" id="graph-live" checked>ライブ
+    </label>
+    <div style="margin-left:auto;display:flex;gap:6px;">
+      <button class="nv-btn" id="graph-fit-btn">全体表示</button>
+      <button class="nv-btn" id="graph-layout-btn">整列</button>
+    </div>
+  </div>
+  <svg id="graph-svg" xmlns="http://www.w3.org/2000/svg">
+    <defs id="graph-defs"></defs>
+    <g id="graph-cam">
+      <g id="graph-edges-g"></g>
+      <g id="graph-nodes-g"></g>
+    </g>
+  </svg>
+</div>
+
 <div id="board-wrap">
   <div id="board">
     <div id="zones-layer"></div>
@@ -578,6 +625,10 @@ const App = (() => {
     view: 'board',         // 'board'|'note'|'graph'
     activeNote: null,      // idea id open in note view
     notePreview: false,    // note view: show rendered preview
+    graphPos: {},          // 'kind:id' → {x,y}
+    gPan: {x:0,y:0},
+    gZoom: 1,
+    graphAnimId: null,
     theme: 'dark',
   };
 
@@ -1663,6 +1714,314 @@ const App = (() => {
     if(best)focus(best.kind,best.id);
   }
 
+  // ─── FORCE SIMULATION (shared) ────────────────────────────────────────
+  function runForceSim(nodes, springs, iters=1) {
+    const REPEL=26000, SPRING=0.007, IDEAL=230, DAMP=0.82;
+    for (let iter=0; iter<iters; iter++) {
+      nodes.forEach(n=>{n.fx=0;n.fy=0;});
+      for (let i=0;i<nodes.length;i++) for (let j=i+1;j<nodes.length;j++) {
+        const A=nodes[i],B=nodes[j];
+        if (A.pinned&&B.pinned) continue;
+        const dx=B.x-A.x, dy=B.y-A.y;
+        const dist=Math.max(Math.hypot(dx,dy),20);
+        const f=REPEL/(dist*dist);
+        const fx=(dx/dist)*f, fy=(dy/dist)*f;
+        if(!A.pinned){A.fx-=fx;A.fy-=fy;}
+        if(!B.pinned){B.fx+=fx;B.fy+=fy;}
+      }
+      springs.forEach(([A,B])=>{
+        if(!A||!B)return;
+        const dx=B.x-A.x, dy=B.y-A.y;
+        const dist=Math.max(Math.hypot(dx,dy),1);
+        const f=SPRING*(dist-IDEAL);
+        const fx=(dx/dist)*f, fy=(dy/dist)*f;
+        if(!A.pinned){A.fx+=fx;A.fy+=fy;}
+        if(!B.pinned){B.fx-=fx;B.fy-=fy;}
+      });
+      nodes.forEach(n=>{
+        if(n.pinned)return;
+        n.vx=(n.vx+n.fx)*DAMP; n.vy=(n.vy+n.fy)*DAMP;
+        n.x+=n.vx; n.y+=n.vy;
+      });
+    }
+  }
+
+  // ─── GRAPH SYSTEM ─────────────────────────────────────────────────────
+  const graphView   = document.getElementById('graph-view');
+  const graphSvg    = document.getElementById('graph-svg');
+  const graphCam    = document.getElementById('graph-cam');
+  const graphEdgesG = document.getElementById('graph-edges-g');
+  const graphNodesG = document.getElementById('graph-nodes-g');
+  let graphSimNodes = [];
+  let graphSimEdges = [];
+  let gDragging     = null;
+  let gPanning      = false;
+  let gPanStart     = null;
+  let gHoverKey     = null;
+
+  function buildGraphArrows() {
+    const defs = document.getElementById('graph-defs');
+    defs.innerHTML = '';
+    Object.entries(COLOR_HEX).forEach(([name,hex])=>{
+      const mk=document.createElementNS('http://www.w3.org/2000/svg','marker');
+      mk.setAttribute('id',`garr-${name}`);
+      mk.setAttribute('markerUnits','strokeWidth');
+      mk.setAttribute('markerWidth','6'); mk.setAttribute('markerHeight','4');
+      mk.setAttribute('refX','6'); mk.setAttribute('refY','2'); mk.setAttribute('orient','auto');
+      const p=document.createElementNS('http://www.w3.org/2000/svg','path');
+      p.setAttribute('d','M0,0 L6,2 L0,4 z'); p.setAttribute('fill',hex);
+      mk.appendChild(p); defs.appendChild(mk);
+    });
+  }
+
+  function buildGraphData() {
+    // Initialize graphPos from board positions if not set
+    Object.values(S.ideas).forEach(o=>{
+      if (!S.graphPos[`idea:${o.id}`]) S.graphPos[`idea:${o.id}`]={x:o.x||300,y:o.y||300};
+    });
+    S.books.forEach(b=>{
+      if (!S.graphPos[`book:${b.id}`]) S.graphPos[`book:${b.id}`]={x:b.x||300,y:b.y||300};
+    });
+    // Build node array
+    graphSimNodes = [];
+    Object.values(S.ideas).forEach(o=>{
+      const p=S.graphPos[`idea:${o.id}`];
+      graphSimNodes.push({id:o.id,kind:'idea',x:p.x,y:p.y,vx:0,vy:0,fx:0,fy:0,pinned:false});
+    });
+    S.books.forEach(b=>{
+      const p=S.graphPos[`book:${b.id}`];
+      graphSimNodes.push({id:b.id,kind:'book',x:p.x,y:p.y,vx:0,vy:0,fx:0,fy:0,pinned:false});
+    });
+    // Build edge array (connectors + wikilinks)
+    const nodeMap={};
+    graphSimNodes.forEach(n=>nodeMap[`${n.kind}:${n.id}`]=n);
+    graphSimEdges = [];
+    S.connectors.forEach(c=>{
+      if (nodeMap[`${c.from.kind}:${c.from.id}`] && nodeMap[`${c.to.kind}:${c.to.id}`])
+        graphSimEdges.push({from:c.from, to:c.to, type:'conn', ctype:c.type||'line'});
+    });
+    Object.values(S.ideas).forEach(o=>{
+      extractWikilinks(o.text).forEach(title=>{
+        const t=findIdeaByTitle(title);
+        if (!t||t.id===o.id) return;
+        graphSimEdges.push({from:{kind:'idea',id:o.id},to:{kind:'idea',id:t.id},type:'wikilink'});
+      });
+    });
+  }
+
+  function saveGraphPos() {
+    graphSimNodes.forEach(n=>{ S.graphPos[`${n.kind}:${n.id}`]={x:n.x,y:n.y}; });
+  }
+
+  function graphEdgeColor(e) {
+    if (e.from.kind==='idea') return S.ideas[e.from.id]?.color||'purple';
+    if (e.from.kind==='book') return S.books.find(b=>b.id===e.from.id)?.color||'amber';
+    return 'purple';
+  }
+
+  function drawGraph() {
+    const nodeMap={};
+    graphSimNodes.forEach(n=>nodeMap[`${n.kind}:${n.id}`]=n);
+    // Edges
+    graphEdgesG.innerHTML='';
+    graphSimEdges.forEach(e=>{
+      const A=nodeMap[`${e.from.kind}:${e.from.id}`];
+      const B=nodeMap[`${e.to.kind}:${e.to.id}`];
+      if(!A||!B)return;
+      const dx=B.x-A.x, dy=B.y-A.y, len=Math.max(Math.hypot(dx,dy),1), r=24;
+      const sx=A.x+(dx/len)*r, sy=A.y+(dy/len)*r;
+      const ex=B.x-(dx/len)*r, ey=B.y-(dy/len)*r;
+      const path=document.createElementNS('http://www.w3.org/2000/svg','path');
+      path.setAttribute('d',`M${sx},${sy} L${ex},${ey}`);
+      path.setAttribute('fill','none');
+      if (e.type==='wikilink') {
+        path.setAttribute('stroke',COLOR_HEX.cyan);
+        path.setAttribute('stroke-width','1'); path.setAttribute('stroke-dasharray','3 5');
+        path.setAttribute('opacity','.35');
+      } else {
+        const col=graphEdgeColor(e), hex=COLOR_HEX[col];
+        path.setAttribute('stroke',hex); path.setAttribute('stroke-width','1.5'); path.setAttribute('opacity','.75');
+        if (e.ctype==='arrow') path.setAttribute('marker-end',`url(#garr-${col})`);
+        else if (e.ctype==='line') path.setAttribute('stroke-dasharray','5 3');
+        else if (e.ctype==='link') {path.setAttribute('stroke-dasharray','1 5');path.setAttribute('opacity','.4');}
+      }
+      const g=document.createElementNS('http://www.w3.org/2000/svg','g');
+      g.classList.add('gedge'); g.appendChild(path);
+      graphEdgesG.appendChild(g);
+    });
+    // Nodes
+    graphNodesG.innerHTML='';
+    graphSimNodes.forEach(n=>{
+      const g=document.createElementNS('http://www.w3.org/2000/svg','g');
+      g.classList.add('gnode');
+      g.setAttribute('data-kind',n.kind); g.setAttribute('data-id',String(n.id));
+      g.setAttribute('transform',`translate(${Math.round(n.x)},${Math.round(n.y)})`);
+      if (n.kind==='idea') {
+        const o=S.ideas[n.id];
+        const col=COLOR_HEX[o?.color||'purple'];
+        const c=document.createElementNS('http://www.w3.org/2000/svg','circle');
+        c.setAttribute('r','22'); c.setAttribute('fill',col); c.setAttribute('fill-opacity','0.82');
+        c.setAttribute('stroke',col); c.setAttribute('stroke-width','2');
+        g.appendChild(c);
+        const wls=extractWikilinks(o?.text).length;
+        if (wls>0) {
+          const b=document.createElementNS('http://www.w3.org/2000/svg','text');
+          b.setAttribute('text-anchor','middle');b.setAttribute('y','4');
+          b.setAttribute('font-size','9');b.setAttribute('fill','#fff');b.setAttribute('opacity','.9');
+          b.textContent=wls; g.appendChild(b);
+        }
+        const lbl=document.createElementNS('http://www.w3.org/2000/svg','text');
+        lbl.setAttribute('text-anchor','middle'); lbl.setAttribute('y','38'); lbl.setAttribute('font-size','10');
+        const tt=noteTitle(o||{});
+        lbl.textContent=tt.slice(0,20)+(tt.length>20?'…':''); g.appendChild(lbl);
+      } else {
+        const bk=S.books.find(b=>b.id===n.id);
+        const col=COLOR_HEX[bk?.color||'amber'];
+        const rect=document.createElementNS('http://www.w3.org/2000/svg','rect');
+        rect.setAttribute('x','-24');rect.setAttribute('y','-14');
+        rect.setAttribute('width','48');rect.setAttribute('height','28');rect.setAttribute('rx','6');
+        rect.setAttribute('fill',col);rect.setAttribute('fill-opacity','0.75');
+        rect.setAttribute('stroke',col);rect.setAttribute('stroke-width','2');
+        g.appendChild(rect);
+        const lbl=document.createElementNS('http://www.w3.org/2000/svg','text');
+        lbl.setAttribute('text-anchor','middle'); lbl.setAttribute('y','32'); lbl.setAttribute('font-size','10');
+        const tt=bk?.children[0] ? noteTitle(S.ideas[bk.children[0]]||{}) : 'BOOK';
+        lbl.textContent=tt.slice(0,16)+(tt.length>16?'…':''); g.appendChild(lbl);
+      }
+      // Events
+      g.addEventListener('mousedown',e=>{
+        e.stopPropagation();
+        gDragging={n,sx:e.clientX,sy:e.clientY,ox:n.x,oy:n.y}; n.pinned=true;
+      });
+      g.addEventListener('click',e=>{
+        e.stopPropagation();
+        if(n.kind==='idea') openNote(n.id);
+        else if(n.kind==='book'){ switchView('note'); selectNote(S.books.find(b=>b.id===n.id)?.children[0]); }
+      });
+      g.addEventListener('dblclick',e=>{
+        e.stopPropagation();
+        if(n.kind==='idea') navigateToNoteOnBoard(n.id);
+        else { switchView('board'); focus('book',n.id); }
+      });
+      g.addEventListener('mouseenter',()=>{ gHoverKey=`${n.kind}:${n.id}`; applyGraphDim(); });
+      g.addEventListener('mouseleave',()=>{ gHoverKey=null; applyGraphDim(); });
+      graphNodesG.appendChild(g);
+    });
+    applyGraphDim();
+    updateGraphCam();
+  }
+
+  function applyGraphDim() {
+    if (!gHoverKey) {
+      graphNodesG.querySelectorAll('.gnode').forEach(el=>el.classList.remove('dim'));
+      graphEdgesG.querySelectorAll('.gedge').forEach(el=>el.classList.remove('dim'));
+      return;
+    }
+    const [hk,hid]=gHoverKey.split(':');
+    const ep={kind:hk, id:isNaN(+hid)?hid:+hid};
+    const vis=getNeighborKeys(ep, 2); vis.add(gHoverKey);
+    // Also add wikilink neighbors
+    if (hk==='idea') {
+      extractWikilinks(S.ideas[ep.id]?.text||'').forEach(t=>{
+        const f=findIdeaByTitle(t); if(f) vis.add(`idea:${f.id}`);
+      });
+      Object.values(S.ideas).forEach(o=>{
+        if(extractWikilinks(o.text).some(t=>{ const f=findIdeaByTitle(t); return f&&f.id===ep.id; }))
+          vis.add(`idea:${o.id}`);
+      });
+    }
+    graphNodesG.querySelectorAll('.gnode').forEach(el=>{
+      el.classList.toggle('dim',!vis.has(`${el.dataset.kind}:${el.dataset.id}`));
+    });
+    graphEdgesG.querySelectorAll('.gedge').forEach(el=>el.classList.add('dim'));
+  }
+
+  function updateGraphCam() {
+    graphCam.setAttribute('transform',`translate(${S.gPan.x},${S.gPan.y}) scale(${S.gZoom})`);
+  }
+
+  function graphFitAll() {
+    if (!graphSimNodes.length) return;
+    const xs=graphSimNodes.map(n=>n.x), ys=graphSimNodes.map(n=>n.y);
+    const pad=80;
+    const minX=Math.min(...xs)-pad, maxX=Math.max(...xs)+pad;
+    const minY=Math.min(...ys)-pad, maxY=Math.max(...ys)+pad;
+    const r=graphSvg.getBoundingClientRect();
+    const nz=Math.min(r.width/(maxX-minX), r.height/(maxY-minY), 2);
+    S.gZoom=nz;
+    S.gPan.x=r.width/2-(minX+(maxX-minX)/2)*nz;
+    S.gPan.y=r.height/2-(minY+(maxY-minY)/2)*nz;
+    updateGraphCam();
+  }
+
+  function getGraphSprings() {
+    const nodeMap={};
+    graphSimNodes.forEach(n=>nodeMap[`${n.kind}:${n.id}`]=n);
+    return graphSimEdges
+      .map(e=>[nodeMap[`${e.from.kind}:${e.from.id}`],nodeMap[`${e.to.kind}:${e.to.id}`]])
+      .filter(([a,b])=>a&&b);
+  }
+
+  function enterGraphView() {
+    buildGraphArrows();
+    buildGraphData();
+    drawGraph();
+    requestAnimationFrame(graphFitAll);
+    // Live simulation loop
+    const liveChk=document.getElementById('graph-live');
+    function simLoop() {
+      if (S.view!=='graph') return;
+      if (liveChk.checked && !gDragging) {
+        runForceSim(graphSimNodes, getGraphSprings(), 2);
+        saveGraphPos();
+        drawGraph();
+      }
+      S.graphAnimId=requestAnimationFrame(simLoop);
+    }
+    S.graphAnimId=requestAnimationFrame(simLoop);
+  }
+
+  function exitGraphView() {
+    if (S.graphAnimId){ cancelAnimationFrame(S.graphAnimId); S.graphAnimId=null; }
+    saveGraphPos(); save();
+  }
+
+  // Graph pan/zoom/drag
+  graphSvg.addEventListener('mousedown',e=>{
+    if (e.button===1||(e.button===0&&e.altKey)||e.button===0) {
+      gPanning=true; gPanStart={x:e.clientX-S.gPan.x,y:e.clientY-S.gPan.y};
+      graphSvg.classList.add('gp');
+    }
+  });
+  document.addEventListener('mousemove',e=>{
+    if (gDragging) {
+      const {n,sx,sy,ox,oy}=gDragging;
+      n.x=ox+(e.clientX-sx)/S.gZoom; n.y=oy+(e.clientY-sy)/S.gZoom;
+      saveGraphPos(); drawGraph();
+    } else if (gPanning && S.view==='graph') {
+      S.gPan.x=e.clientX-gPanStart.x; S.gPan.y=e.clientY-gPanStart.y;
+      updateGraphCam();
+    }
+  });
+  document.addEventListener('mouseup',()=>{
+    if (gDragging){ gDragging.n.pinned=false; gDragging=null; }
+    if (gPanning){ gPanning=false; graphSvg.classList.remove('gp'); }
+  });
+  graphSvg.addEventListener('wheel',e=>{
+    e.preventDefault();
+    const dz=e.deltaY>0?.9:1.1, nz=Math.max(.1,Math.min(4,S.gZoom*dz));
+    const r=graphSvg.getBoundingClientRect();
+    const mx=e.clientX-r.left, my=e.clientY-r.top;
+    S.gPan.x=mx-(mx-S.gPan.x)*(nz/S.gZoom); S.gPan.y=my-(my-S.gPan.y)*(nz/S.gZoom);
+    S.gZoom=nz; updateGraphCam();
+  },{passive:false});
+
+  document.getElementById('graph-fit-btn').addEventListener('click',graphFitAll);
+  document.getElementById('graph-layout-btn').addEventListener('click',()=>{
+    runForceSim(graphSimNodes, getGraphSprings(), 300);
+    saveGraphPos(); drawGraph(); graphFitAll();
+  });
+
   // ─── LENS MODE ────────────────────────────────────────────────────────
   function getObjData(ep) {
     if (ep.kind==='idea') return S.ideas[ep.id];
@@ -1769,28 +2128,7 @@ const App = (() => {
     const cx0 = nodes.reduce((s,n)=>s+n.x,0)/nodes.length;
     const cy0 = nodes.reduce((s,n)=>s+n.y,0)/nodes.length;
 
-    for (let iter=0; iter<180; iter++) {
-      nodes.forEach(n=>{n.fx=0;n.fy=0;});
-      for (let i=0;i<nodes.length;i++) for (let j=i+1;j<nodes.length;j++) {
-        const A=nodes[i],B=nodes[j];
-        const dx=B.x-A.x, dy=B.y-A.y;
-        const dist=Math.max(Math.hypot(dx,dy),20);
-        const f=28000/(dist*dist);
-        const fx=(dx/dist)*f, fy=(dy/dist)*f;
-        A.fx-=fx; A.fy-=fy; B.fx+=fx; B.fy+=fy;
-      }
-      springs.forEach(([A,B])=>{
-        const dx=B.x-A.x, dy=B.y-A.y;
-        const dist=Math.max(Math.hypot(dx,dy),1);
-        const f=0.007*(dist-240);
-        const fx=(dx/dist)*f, fy=(dy/dist)*f;
-        A.fx+=fx; A.fy+=fy; B.fx-=fx; B.fy-=fy;
-      });
-      nodes.forEach(n=>{
-        n.vx=(n.vx+n.fx)*.8; n.vy=(n.vy+n.fy)*.8;
-        n.x+=n.vx; n.y+=n.vy;
-      });
-    }
+    runForceSim(nodes, springs, 180);
 
     // Re-center on original centroid
     const cx1=nodes.reduce((s,n)=>s+n.x,0)/nodes.length;
@@ -2146,7 +2484,8 @@ const App = (() => {
       try {
         localStorage.setItem('ideaboard_v4',JSON.stringify({
           ideas:S.ideas,connectors:S.connectors,zones:S.zones,books:S.books,
-          nextId:S.nextId,pan:S.pan,zoom:S.zoom,theme:S.theme
+          nextId:S.nextId,pan:S.pan,zoom:S.zoom,theme:S.theme,
+          graphPos:S.graphPos
         }));
       } catch(e){}
     },400);
@@ -2160,7 +2499,8 @@ const App = (() => {
       Object.assign(S,{
         ideas:d.ideas||{},connectors:d.connectors||[],
         zones:d.zones||[],books:d.books||[],
-        nextId:d.nextId||1,pan:d.pan||S.pan,zoom:d.zoom||1,theme:d.theme||'dark'
+        nextId:d.nextId||1,pan:d.pan||S.pan,zoom:d.zoom||1,theme:d.theme||'dark',
+        graphPos:d.graphPos||{}
       });
       // normalize idea ids to numbers
       const fixed={};
@@ -2313,22 +2653,25 @@ const App = (() => {
   // ─── VIEW SWITCH ──────────────────────────────────────────────────────
   const noteView = document.getElementById('note-view');
   function switchView(v) {
+    const prev = S.view;
+    if (prev === 'graph' && v !== 'graph') exitGraphView();
     S.view = v;
     document.querySelectorAll('.vs-btn').forEach(b =>
       b.classList.toggle('active', b.dataset.view===v));
+    noteView.classList.toggle('show', v==='note');
+    graphView.classList.toggle('show', v==='graph');
     if (v==='note') {
-      noteView.classList.add('show');
       if (!S.activeNote || !S.ideas[S.activeNote]) {
         const first = Object.values(S.ideas)[0];
         S.activeNote = first ? first.id : null;
       }
       renderNoteList();
       selectNote(S.activeNote);
+    } else if (v==='graph') {
+      enterGraphView();
     } else {
-      noteView.classList.remove('show');
+      renderAll();
     }
-    if (v==='graph') { switchView('board'); toast('GRAPHビューは Phase 2 で実装予定です'); return; }
-    if (v==='board') { renderAll(); }
   }
 
   function openNote(id) {
