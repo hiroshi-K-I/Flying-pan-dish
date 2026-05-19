@@ -302,6 +302,14 @@ body {
 /* ─── MOVE SELECTION ─── */
 .move-selected { outline:2px solid var(--purple);outline-offset:3px; }
 
+/* ─── FOCUS LENS ─── */
+.lens-dim {
+  opacity: 0.06 !important;
+  filter: grayscale(1) !important;
+  transition: opacity 0.3s, filter 0.3s;
+  pointer-events: none !important;
+}
+
 /* ─── CONNECT SOURCE ─── */
 .connect-source { animation:connectPulse .9s ease-in-out infinite; }
 @keyframes connectPulse { 0%,100%{opacity:1}50%{opacity:.45} }
@@ -338,6 +346,9 @@ body {
     <div class="hint"><span class="hk">x</span>削除</div>
     <div class="hint"><span class="hk">m</span>移動</div>
     <div class="hint"><span class="hk">v</span>ビュー</div>
+    <div class="hint"><span class="hk">l</span>レンズ</div>
+    <div class="hint"><span class="hk">g</span>架け橋</div>
+    <div class="hint"><span class="hk">s</span>整列</div>
   </div>
   <div id="toolbar">
     <button class="tb-btn" id="theme-btn" title="テーマ切替">◑</button>
@@ -409,8 +420,11 @@ const App = (() => {
     hintReturnToConnect: false,
     hintReturnToBook: false,
     hintReturnToMove: false,
+    hintReturnToBridge: false,
     bookSelection: [],     // idea ids accumulating for book build
     moveSelection: [],     // {kind,id} objects accumulating for move
+    lensMode: false,
+    lensDepth: 1,
     theme: 'dark',
   };
 
@@ -505,6 +519,7 @@ const App = (() => {
       else if (kind==='zone') { const z=S.zones.find(z=>z.id===id); if(z) applyZoneBorder(el,z,true); }
       else if (kind==='book') { const bk=S.books.find(b=>b.id===id); if(bk) applyBookBorder(el,bk,true); }
     }
+    if (S.lensMode) applyLens();
     updateCmd();
   }
   function clearFocus() {
@@ -521,6 +536,7 @@ const App = (() => {
       }
     });
     S.focused = null;
+    if (S.lensMode) exitLensMode();
     updateCmd();
   }
   function getEl(kind, id) {
@@ -1057,7 +1073,8 @@ const App = (() => {
     if (S.mode==='edit') return;
 
     if (e.key==='Escape') {
-      closePalette(); exitConnectMode(); closeHintSelect(); cancelBookBuild(); cancelMoveSelect();
+      closePalette(); exitConnectMode(); closeHintSelect(); cancelBookBuild(); cancelMoveSelect(); exitLensMode();
+      if (S.cmdMode==='bridge') { S.connectFrom=null; }
       S.cmdBuf=''; S.cmdMode=null;
       if (S.mode==='resize') setMode('select');
       updateCmd(); return;
@@ -1110,11 +1127,24 @@ const App = (() => {
       if (e.key==='f'){ e.preventDefault(); openHintSelect(false, true); return; }
       return;
     }
+    if (S.cmdMode==='bridge') {
+      if (e.key==='Escape') { S.connectFrom=null; S.cmdMode=null; S.cmdBuf=''; updateCmd(); return; }
+      if (e.key==='f') { e.preventDefault(); openHintSelect(false,false,false,true); return; }
+      return;
+    }
+
     if (S.cmdMode==='v') {
       if (e.key==='Escape'){ S.cmdBuf='';S.cmdMode=null;updateCmd();return; }
       if (e.key==='Enter'){ fitAll();S.cmdBuf='';S.cmdMode=null;updateCmd();return; }
       if (/^[1-9]$/.test(e.key)){ zoomToSection(+e.key);S.cmdBuf='';S.cmdMode=null;updateCmd();return; }
       return;
+    }
+
+    // ── Lens depth shortcut (1-3 while in lens mode) ──
+    if (S.lensMode && /^[123]$/.test(e.key)) {
+      e.preventDefault();
+      S.lensDepth = +e.key;
+      applyLens(); updateCmd(); return;
     }
 
     // ── Arrow key movement of selected object ──
@@ -1163,6 +1193,21 @@ const App = (() => {
         unbookOrDetach();
         break;
       case 'p': e.preventDefault(); openPalette(); break;
+      case 'l':
+        e.preventDefault();
+        if (S.lensMode) exitLensMode(); else enterLensMode();
+        break;
+      case 'g':
+        e.preventDefault();
+        if (!S.focused) { toast('先に接続元を選択してください'); break; }
+        S.connectFrom = {...S.focused};
+        S.cmdMode = 'bridge'; S.cmdBuf = 'g';
+        openHintSelect(false, false, false, true);
+        break;
+      case 's':
+        e.preventDefault();
+        autoLayout();
+        break;
       case 'r':
         e.preventDefault();
         if (S.focused?.kind==='zone') {
@@ -1431,6 +1476,171 @@ const App = (() => {
     if(best)focus(best.kind,best.id);
   }
 
+  // ─── LENS MODE ────────────────────────────────────────────────────────
+  function getObjData(ep) {
+    if (ep.kind==='idea') return S.ideas[ep.id];
+    if (ep.kind==='zone') return S.zones.find(z=>z.id===ep.id);
+    if (ep.kind==='book') return S.books.find(b=>b.id===ep.id);
+    return null;
+  }
+
+  function getNeighborKeys(ep, depth) {
+    const visited = new Set([`${ep.kind}:${ep.id}`]);
+    let frontier = [ep];
+    for (let d = 0; d < depth; d++) {
+      const next = [];
+      frontier.forEach(f => {
+        S.connectors.forEach(c => {
+          const check = (from, to) => {
+            if (epEqual(from, f)) {
+              const k = `${to.kind}:${to.id}`;
+              if (!visited.has(k)) { visited.add(k); next.push(to); }
+            }
+          };
+          check(c.from, c.to);
+          check(c.to, c.from);
+        });
+      });
+      frontier = next;
+      if (!frontier.length) break;
+    }
+    return visited;
+  }
+
+  function applyLens() {
+    if (!S.lensMode || !S.focused) { exitLensMode(); return; }
+    const visible = getNeighborKeys(S.focused, S.lensDepth);
+    document.querySelectorAll('.idea, .zone, .book').forEach(el => {
+      if (el.style.display === 'none') return;
+      let key = null;
+      if (el.classList.contains('idea'))      key = `idea:${el.id.replace('idea-','')}`;
+      else if (el.classList.contains('zone')) key = `zone:${el.id.replace('zone-','')}`;
+      else if (el.classList.contains('book')) key = `book:${el.id.replace('book-','')}`;
+      if (key) el.classList.toggle('lens-dim', !visible.has(key));
+    });
+  }
+
+  function enterLensMode() {
+    if (!S.focused) { toast('先にオブジェクトを選択してください'); return; }
+    S.lensMode = true; S.lensDepth = 1;
+    applyLens();
+    toast('フォーカスレンズ — 1〜3 で深さ変更  L or Esc で終了');
+    updateCmd();
+  }
+
+  function exitLensMode() {
+    if (!S.lensMode) return;
+    S.lensMode = false;
+    document.querySelectorAll('.lens-dim').forEach(el=>el.classList.remove('lens-dim'));
+    updateCmd();
+  }
+
+  // ─── BRIDGE IDEA ─────────────────────────────────────────────────────
+  function createBridgeIdea(fromEp, toEp) {
+    const fromObj = getObjData(fromEp);
+    const toObj   = getObjData(toEp);
+    if (!fromObj || !toObj) return;
+    const mx = (fromObj.x + toObj.x) / 2 + (Math.random()-.5)*40;
+    const my = (fromObj.y + toObj.y) / 2 - 50;
+    const id = S.nextId++;
+    S.ideas[id] = {id, x:mx, y:my, text:'', color:'green'};
+    renderIdea(id, true);
+    const bridgeEp = {kind:'idea', id};
+    S.connectors.push({id:`c${S.nextId++}`, from:fromEp,   to:bridgeEp, type:'arrow'});
+    S.connectors.push({id:`c${S.nextId++}`, from:bridgeEp, to:toEp,     type:'arrow'});
+    redrawConnectors(); save(); updateStat();
+    focus('idea', id); setMode('edit'); startEdit(id);
+    toast('架け橋アイデア — 2つをつなぐ概念を入力してください');
+  }
+
+  // ─── AUTO LAYOUT (force-directed) ────────────────────────────────────
+  function autoLayout() {
+    const nodes = [];
+    Object.values(S.ideas).forEach(o => {
+      const el = getEl('idea', o.id);
+      if (!el || el.style.display==='none') return;
+      nodes.push({id:o.id, kind:'idea', x:o.x+(el.offsetWidth||160)/2, y:o.y+(el.offsetHeight||80)/2,
+                  w:el.offsetWidth||160, h:el.offsetHeight||80, vx:0, vy:0, fx:0, fy:0});
+    });
+    S.books.forEach(b => {
+      const el = getEl('book', b.id);
+      if (!el) return;
+      nodes.push({id:b.id, kind:'book', x:b.x+(el.offsetWidth||180)/2, y:b.y+(el.offsetHeight||80)/2,
+                  w:el.offsetWidth||180, h:el.offsetHeight||80, vx:0, vy:0, fx:0, fy:0});
+    });
+    if (nodes.length < 2) { toast('アイデアが少なすぎます'); return; }
+
+    const nodeMap = {};
+    nodes.forEach(n => nodeMap[`${n.kind}:${n.id}`] = n);
+    const springs = [];
+    S.connectors.forEach(c => {
+      const a = nodeMap[`${c.from.kind}:${c.from.id}`];
+      const b = nodeMap[`${c.to.kind}:${c.to.id}`];
+      if (a && b) springs.push([a,b]);
+    });
+
+    const cx0 = nodes.reduce((s,n)=>s+n.x,0)/nodes.length;
+    const cy0 = nodes.reduce((s,n)=>s+n.y,0)/nodes.length;
+
+    for (let iter=0; iter<180; iter++) {
+      nodes.forEach(n=>{n.fx=0;n.fy=0;});
+      for (let i=0;i<nodes.length;i++) for (let j=i+1;j<nodes.length;j++) {
+        const A=nodes[i],B=nodes[j];
+        const dx=B.x-A.x, dy=B.y-A.y;
+        const dist=Math.max(Math.hypot(dx,dy),20);
+        const f=28000/(dist*dist);
+        const fx=(dx/dist)*f, fy=(dy/dist)*f;
+        A.fx-=fx; A.fy-=fy; B.fx+=fx; B.fy+=fy;
+      }
+      springs.forEach(([A,B])=>{
+        const dx=B.x-A.x, dy=B.y-A.y;
+        const dist=Math.max(Math.hypot(dx,dy),1);
+        const f=0.007*(dist-240);
+        const fx=(dx/dist)*f, fy=(dy/dist)*f;
+        A.fx+=fx; A.fy+=fy; B.fx-=fx; B.fy-=fy;
+      });
+      nodes.forEach(n=>{
+        n.vx=(n.vx+n.fx)*.8; n.vy=(n.vy+n.fy)*.8;
+        n.x+=n.vx; n.y+=n.vy;
+      });
+    }
+
+    // Re-center on original centroid
+    const cx1=nodes.reduce((s,n)=>s+n.x,0)/nodes.length;
+    const cy1=nodes.reduce((s,n)=>s+n.y,0)/nodes.length;
+    nodes.forEach(n=>{n.x+=cx0-cx1; n.y+=cy0-cy1;});
+
+    // Capture start/end positions (center → top-left)
+    const startPos={}, endPos={};
+    nodes.forEach(n=>{
+      const obj = n.kind==='idea' ? S.ideas[n.id] : S.books.find(b=>b.id===n.id);
+      if (!obj) return;
+      const key=`${n.kind}:${n.id}`;
+      startPos[key]={x:obj.x, y:obj.y};
+      endPos[key]  ={x:n.x-n.w/2, y:n.y-n.h/2};
+    });
+
+    const DURATION=700, t0=performance.now();
+    function tick(t) {
+      const p=Math.min((t-t0)/DURATION,1);
+      const ease=1-Math.pow(1-p,3);
+      nodes.forEach(n=>{
+        const key=`${n.kind}:${n.id}`;
+        const s=startPos[key],e=endPos[key]; if(!s||!e)return;
+        const nx=s.x+(e.x-s.x)*ease, ny=s.y+(e.y-s.y)*ease;
+        const obj=n.kind==='idea'?S.ideas[n.id]:S.books.find(b=>b.id===n.id);
+        if(!obj)return;
+        obj.x=nx; obj.y=ny;
+        const el=getEl(n.kind,n.id); if(el){el.style.left=nx+'px';el.style.top=ny+'px';}
+      });
+      redrawConnectors();
+      if(p<1) requestAnimationFrame(tick);
+      else { save(); toast('自動配置しました'); }
+    }
+    requestAnimationFrame(tick);
+    toast('整列中...');
+  }
+
   // ─── CONNECT MODE ─────────────────────────────────────────────────────
   function startConnectMode() {
     if (!S.focused) { toast('先にオブジェクトを選択してください'); return; }
@@ -1500,7 +1710,7 @@ const App = (() => {
   }
 
   // ─── HINT SELECT (Vimium-style) ───────────────────────────────────────
-  function openHintSelect(returnToConnect = false, bookMode = false, moveMode = false) {
+  function openHintSelect(returnToConnect = false, bookMode = false, moveMode = false, bridgeMode = false) {
     closeHintSelect();
     const objs = [];
     if (bookMode) {
@@ -1565,6 +1775,7 @@ const App = (() => {
     S.hintReturnToConnect = returnToConnect;
     S.hintReturnToBook = bookMode;
     S.hintReturnToMove = moveMode;
+    S.hintReturnToBridge = bridgeMode;
     S.cmdMode = 'hint';
     updateCmd();
   }
@@ -1574,7 +1785,8 @@ const App = (() => {
     const wasBook = S.hintReturnToBook;
     const wasMove = S.hintReturnToMove;
     S.hintMap = null; S.hintBuf = '';
-    S.hintReturnToConnect = false; S.hintReturnToBook = false; S.hintReturnToMove = false;
+    S.hintReturnToConnect = false; S.hintReturnToBook = false;
+    S.hintReturnToMove = false; S.hintReturnToBridge = false;
     if (S.cmdMode === 'hint') {
       // Restore the parent mode if we were in a multi-select flow
       if (wasMove) S.cmdMode = 'move';
@@ -1597,8 +1809,10 @@ const App = (() => {
       if (S.hintMap[S.hintBuf]) {
         const target = S.hintMap[S.hintBuf];
         const returnToConnect = S.hintReturnToConnect;
-        const returnToBook = S.hintReturnToBook;
-        const returnToMove = S.hintReturnToMove;
+        const returnToBook    = S.hintReturnToBook;
+        const returnToMove    = S.hintReturnToMove;
+        const returnToBridge  = S.hintReturnToBridge;
+        const savedFrom       = S.connectFrom ? {...S.connectFrom} : null;
         closeHintSelect();
         if (returnToBook) {
           if (!S.bookSelection.includes(target.id)) S.bookSelection.push(target.id);
@@ -1617,6 +1831,9 @@ const App = (() => {
           S.cmdMode = 'move';
           updateCmd();
           requestAnimationFrame(()=>openHintSelect(false, false, true));
+        } else if (returnToBridge) {
+          S.connectFrom = null; S.cmdMode = null; S.cmdBuf = '';
+          if (savedFrom) createBridgeIdea(savedFrom, {kind:target.kind, id:target.id});
         } else {
           focus(target.kind, target.id);
           if (returnToConnect && S.connectFrom) {
@@ -1712,7 +1929,9 @@ const App = (() => {
     else if(S.cmdMode==='palette') txt='COLOR: 1紫  2シアン  3緑  4琥珀  5ピンク  Esc:キャンセル';
     else if(S.mode==='resize') txt=`リサイズモード — ↑↓←→:サイズ変更  Enter:確定`;
     else if(S.cmdMode==='v') txt='VIEW: Enter=全体  1-9=テンキー位置  Esc:キャンセル';
-    else if(S.focused){ const{kind}=S.focused; txt=`${kind} 選択中 — Enter:編集  c:接続  f:別を選択  p:カラー  u:解除  x:削除`; }
+    else if(S.cmdMode==='bridge') txt=`架け橋: 接続先を選択 — f:選択  Esc:キャンセル`;
+    else if(S.lensMode) txt=`フォーカスレンズ (深さ:${S.lensDepth}) — 1〜3:深さ変更  L/Esc:終了`;
+    else if(S.focused){ const{kind}=S.focused; txt=`${kind} 選択中 — Enter:編集  c:接続  g:架け橋  l:レンズ  f:別を選択  p:カラー  u:解除  x:削除`; }
     cmdBufEl.textContent=txt;
   }
   function updateStat() {
