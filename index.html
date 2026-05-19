@@ -342,6 +342,7 @@ body {
   background:var(--header-bg);border-bottom:1px solid var(--header-border);flex-shrink:0;
 }
 #note-top .nt-title { font-size:11px;font-weight:700;letter-spacing:3px;color:var(--text);opacity:.4; }
+#note-top .nt-hint { font-size:9px;color:var(--dim);opacity:.55;letter-spacing:.5px;white-space:nowrap; }
 .nv-btn {
   background:var(--card);border:1px solid var(--card-border);border-radius:4px;
   color:var(--dim);font-family:inherit;font-size:9px;letter-spacing:1px;
@@ -414,6 +415,11 @@ body {
 #note-preview hr{border:none;border-top:1px solid var(--card-border);margin:14px 0;}
 #note-preview a{color:var(--cyan);text-decoration:none;}
 #note-preview a:hover{text-decoration:underline;}
+#note-preview del{opacity:.6;text-decoration:line-through;}
+#note-preview li.task{list-style:none;margin-left:-18px;}
+#note-preview li.task .cb{margin-right:5px;}
+#note-preview li.task.done{opacity:.55;}
+#note-preview ul ul,#note-preview ul ol,#note-preview ol ul,#note-preview ol ol{margin:2px 0 2px 18px;}
 .wikilink{color:var(--cyan);cursor:pointer;border-bottom:1px dashed var(--cyan);}
 .wikilink.missing{color:var(--pink);border-color:var(--pink);}
 #note-links {
@@ -516,7 +522,8 @@ body {
       <button class="vs-btn active" data-view="note">NOTE</button>
       <button class="vs-btn" data-view="graph">GRAPH</button>
     </div>
-    <div style="margin-left:auto;display:flex;gap:6px;">
+    <div style="margin-left:auto;display:flex;align-items:center;gap:6px;">
+      <span class="nt-hint">Ctrl+1/2/3 ビュー切替 &nbsp;|&nbsp; Alt+↑↓ メモ移動</span>
       <button class="nv-btn" id="note-toggle-prev" title="編集/プレビュー切替">プレビュー</button>
       <button class="nv-btn" id="note-open-board">ボードで開く</button>
     </div>
@@ -1290,12 +1297,46 @@ const App = (() => {
 
   // ─── KEYBOARD ─────────────────────────────────────────────────────────
   document.addEventListener('keydown', e=>{
+    // Global view shortcuts: Ctrl+1/2/3 from any view
+    if (e.ctrlKey && !e.shiftKey && !e.altKey && (e.key==='1'||e.key==='2'||e.key==='3')) {
+      const ae = document.activeElement;
+      const inInput = ae && (ae.tagName==='INPUT'||ae.tagName==='TEXTAREA');
+      if (!inInput) {
+        e.preventDefault();
+        if (e.key==='1') switchView('board');
+        else if (e.key==='2') switchView('note');
+        else if (e.key==='3') switchView('graph');
+        return;
+      }
+    }
     // Note view: native input behavior, Escape returns to board
     if (S.view !== 'board') {
       if (e.key==='Escape') {
         const ae = document.activeElement;
         if (ae && (ae.id==='note-ta' || ae.id==='note-search')) { ae.blur(); return; }
         switchView('board');
+        return;
+      }
+      // Note view: Alt+ArrowUp/Down or [ / ] to cycle notes
+      if (S.view === 'note') {
+        const ae = document.activeElement;
+        const inTA = ae && ae.id==='note-ta';
+        let step = 0;
+        if ((e.altKey && e.key==='ArrowUp') || (!inTA && e.key==='[')) step = -1;
+        if ((e.altKey && e.key==='ArrowDown') || (!inTA && e.key===']')) step = 1;
+        if (step !== 0) {
+          e.preventDefault();
+          const filter = document.getElementById('note-search').value.trim().toLowerCase();
+          const items = Object.values(S.ideas)
+            .map(o => ({id:o.id, title:(o.text||'').split('\n')[0].replace(/^#+\s*/,'').trim()||'無題'}))
+            .filter(o => !filter || o.title.toLowerCase().includes(filter) || (S.ideas[o.id]?.text||'').toLowerCase().includes(filter))
+            .sort((a,b) => a.title.localeCompare(b.title,'ja'));
+          if (!items.length) return;
+          const cur = items.findIndex(o => o.id === S.activeNote);
+          const next = items[((cur < 0 ? 0 : cur) + step + items.length) % items.length];
+          selectNote(next.id);
+          return;
+        }
       }
       return;
     }
@@ -2568,52 +2609,83 @@ const App = (() => {
     const blocks = [];
     // fenced code
     src = src.replace(/```([\s\S]*?)```/g, (_, c) => {
-      blocks.push(`<pre><code>${esc(c.replace(/^\n/,''))}</code></pre>`);
-      return ` B${blocks.length-1} `;
+      blocks.push(`<pre><code>${esc(c.replace(/^\n/,""))}</code></pre>`);
+      return `\x00B${blocks.length-1}\x00`;
     });
     const lines = src.split('\n');
-    let html = '', listType = null;
-    const closeList = () => { if (listType) { html += `</${listType}>`; listType = null; } };
+    let html = '';
+    // nested list stack: [{type:"ul"|"ol", indent:number}]
+    const listStack = [];
+    const closeListsTo = (targetIndent) => {
+      while (listStack.length && listStack[listStack.length-1].indent > targetIndent) {
+        html += `</${listStack.pop().type}>`;
+      }
+    };
+    const closeLists = () => { while (listStack.length) html += `</${listStack.pop().type}>`; };
     const inline = s => {
       s = esc(s);
       s = s.replace(/\[\[([^\]]+)\]\]/g, (_, t) => {
         t = t.trim();
         const found = findIdeaByTitle(t);
-        return `<span class="wikilink${found?'':' missing'}" data-wl="${esc(t)}">${esc(t)}</span>`;
+        return `<span class="wikilink${found?"":" missing"}" data-wl="${esc(t)}">${esc(t)}</span>`;
       });
       s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+      s = s.replace(/~~([^~]+)~~/g, '<del>$1</del>');
       s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
       s = s.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
       s = s.replace(/(^|[^_])_([^_\n]+)_/g, '$1<em>$2</em>');
+      // named links before bare URLs
       s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
         '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+      // bare URLs not already inside an href
+      s = s.replace(/(^|[\s(])(https?:\/\/[^\s<)"]+)/g,
+        '$1<a href="$2" target="_blank" rel="noopener noreferrer">$2</a>');
       return s;
     };
     for (let raw of lines) {
       const line = raw.replace(/\r$/, '');
-      const ph = line.match(/^ B(\d+) $/);
-      if (ph) { closeList(); html += blocks[+ph[1]]; continue; }
-      if (/^\s*$/.test(line)) { closeList(); continue; }
+      const ph = line.match(/^\x00B(\d+)\x00$/);
+      if (ph) { closeLists(); html += blocks[+ph[1]]; continue; }
+      if (/^\s*$/.test(line)) { closeLists(); continue; }
       let m;
       if ((m = line.match(/^(#{1,6})\s+(.*)$/))) {
-        closeList(); html += `<h${m[1].length}>${inline(m[2])}</h${m[1].length}>`; continue;
+        closeLists(); html += `<h${m[1].length}>${inline(m[2])}</h${m[1].length}>`; continue;
       }
-      if (/^\s*([-*_])\s*\1\s*\1[\s\1]*$/.test(line)) { closeList(); html += '<hr>'; continue; }
-      if ((m = line.match(/^>\s?(.*)$/))) { closeList(); html += `<blockquote>${inline(m[1])}</blockquote>`; continue; }
-      if ((m = line.match(/^\s*[-*+]\s+(.*)$/))) {
-        if (listType !== 'ul') { closeList(); html += '<ul>'; listType = 'ul'; }
-        html += `<li>${inline(m[1])}</li>`; continue;
+      if (/^\s*([-*_])\s*\1\s*\1[\s\1]*$/.test(line)) { closeLists(); html += "<hr>"; continue; }
+      if ((m = line.match(/^(>\s?)(.*)/))) { closeLists(); html += `<blockquote>${inline(m[2])}</blockquote>`; continue; }
+      // task list
+      if ((m = line.match(/^(\s*)([-*+])\s+\[([ xX])\]\s+(.*)/))) {
+        const indent = m[1].length;
+        const done = m[3].toLowerCase() === "x";
+        closeListsTo(indent - 1);
+        if (!listStack.length || listStack[listStack.length-1].indent < indent) {
+          html += "<ul>"; listStack.push({type:"ul", indent});
+        }
+        html += `<li class="task${done?" done":""}><span class="cb">${done?"☑":"☐"}</span> ${inline(m[4])}</li>`; continue;
       }
-      if ((m = line.match(/^\s*\d+\.\s+(.*)$/))) {
-        if (listType !== 'ol') { closeList(); html += '<ol>'; listType = 'ol'; }
-        html += `<li>${inline(m[1])}</li>`; continue;
+      // unordered list
+      if ((m = line.match(/^(\s*)[-*+]\s+(.*)/))) {
+        const indent = m[1].length;
+        closeListsTo(indent - 1);
+        if (!listStack.length || listStack[listStack.length-1].indent < indent) {
+          html += "<ul>"; listStack.push({type:"ul", indent});
+        }
+        html += `<li>${inline(m[2])}</li>`; continue;
       }
-      closeList(); html += `<p>${inline(line)}</p>`;
+      // ordered list
+      if ((m = line.match(/^(\s*)\d+\.\s+(.*)/))) {
+        const indent = m[1].length;
+        closeListsTo(indent - 1);
+        if (!listStack.length || listStack[listStack.length-1].indent < indent) {
+          html += "<ol>"; listStack.push({type:"ol", indent});
+        }
+        html += `<li>${inline(m[2])}</li>`; continue;
+      }
+      closeLists(); html += `<p>${inline(line)}</p>`;
     }
-    closeList();
+    closeLists();
     return html;
   }
-
   // Links for a given idea id
   function noteBacklinks(id) {
     const title = noteTitle(S.ideas[id]);
