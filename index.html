@@ -609,6 +609,33 @@
       color: var(--dim);
     }
 
+    /* ─── MINIMAP ─── */
+    #minimap {
+      position: fixed;
+      bottom: 42px; /* above cmdline */
+      right: 16px;
+      width: 180px;
+      height: 120px;
+      background: var(--card);
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      overflow: hidden;
+      z-index: 200;
+      cursor: crosshair;
+      box-shadow: 0 4px 16px rgba(0,0,0,.35);
+      opacity: 0.9;
+      transition: opacity .15s;
+    }
+    #minimap:hover { opacity: 1; }
+    #minimap canvas { display: block; width: 100%; height: 100%; image-rendering: pixelated; }
+    #minimap-viewport {
+      position: absolute;
+      border: 1.5px solid var(--accent);
+      border-radius: 2px;
+      pointer-events: none;
+      opacity: 0.6;
+    }
+
     /* ─── PALETTE ─── */
     #palette {
       position: fixed;
@@ -992,6 +1019,12 @@
   <!-- move grid overlay -->
   <div id="move-overlay"></div>
 
+  <!-- minimap -->
+  <div id="minimap">
+    <canvas id="minimap-canvas" width="360" height="240"></canvas>
+    <div id="minimap-viewport"></div>
+  </div>
+
   <div id="palette">
     <span class="p-lbl">COLOR</span>
     <div class="psw" data-c="purple" style="background:#7b6cf6"><span class="psw-k">1</span></div>
@@ -1097,12 +1130,120 @@
       const GRID_BASE = 24; // グリッド基準サイズ(px)
       function applyXform() {
         board.style.transform = `translate(${S.pan.x}px,${S.pan.y}px) scale(${S.zoom})`;
-        // ドットグリッドをズームに合わせて拡縮
         const gs = GRID_BASE * S.zoom;
         boardWrap.style.setProperty('--grid-size', gs + 'px');
-        // ズーム% 表示
         zoomDisplay.textContent = Math.round(S.zoom * 100) + '%';
+        updateMinimap();
       }
+
+      // ─── MINIMAP ──────────────────────────────────────────────────────────
+      const minimapCanvas = document.getElementById('minimap-canvas');
+      const minimapCtx = minimapCanvas.getContext('2d');
+      const minimapVP = document.getElementById('minimap-viewport');
+      const minimapEl = document.getElementById('minimap');
+      const MM_W = 360, MM_H = 240; // canvas resolution (2x of display)
+      const COLOR_HEX_VALUES = Object.values(COLOR_HEX);
+
+      function updateMinimap() {
+        const ideas = Object.values(S.ideas).filter(o => {
+          const el = document.getElementById(`idea-${o.id}`);
+          return el && el.style.display !== 'none';
+        });
+        if (!ideas.length) {
+          minimapCtx.clearRect(0, 0, MM_W, MM_H);
+          minimapVP.style.display = 'none';
+          return;
+        }
+
+        // bounds of all cards
+        const xs = ideas.map(o => o.x), ys = ideas.map(o => o.y);
+        const bLeft = Math.min(...xs) - 60;
+        const bTop = Math.min(...ys) - 60;
+        const bRight = Math.max(...ideas.map(o => {
+          const el = document.getElementById(`idea-${o.id}`);
+          return o.x + (el ? el.offsetWidth : 200);
+        })) + 60;
+        const bBottom = Math.max(...ideas.map(o => {
+          const el = document.getElementById(`idea-${o.id}`);
+          return o.y + (el ? el.offsetHeight : 120);
+        })) + 60;
+
+        const bW = bRight - bLeft, bH = bBottom - bTop;
+        const scale = Math.min(MM_W / bW, MM_H / bH, 0.8);
+        // center content in canvas
+        const offX = (MM_W - bW * scale) / 2 - bLeft * scale;
+        const offY = (MM_H - bH * scale) / 2 - bTop * scale;
+
+        minimapCtx.clearRect(0, 0, MM_W, MM_H);
+
+        // draw zones
+        S.zones.forEach(z => {
+          const hex = COLOR_HEX[z.color || 'cyan'];
+          minimapCtx.fillStyle = hex + '18';
+          minimapCtx.strokeStyle = hex + '60';
+          minimapCtx.lineWidth = 1;
+          const zx = z.x * scale + offX, zy = z.y * scale + offY;
+          const zw = z.w * scale, zh = z.h * scale;
+          minimapCtx.beginPath();
+          minimapCtx.roundRect(zx, zy, zw, zh, 4);
+          minimapCtx.fill(); minimapCtx.stroke();
+        });
+
+        // draw idea cards
+        ideas.forEach(o => {
+          const el = document.getElementById(`idea-${o.id}`);
+          const w = (el ? el.offsetWidth : 200) * scale;
+          const h = (el ? el.offsetHeight : 80) * scale;
+          const cx = o.x * scale + offX, cy = o.y * scale + offY;
+          const hex = COLOR_HEX[o.color || 'purple'];
+          const isFocused = S.focused?.kind === 'idea' && S.focused.id === o.id;
+          minimapCtx.fillStyle = isFocused ? hex + '40' : '#161b22';
+          minimapCtx.strokeStyle = hex;
+          minimapCtx.lineWidth = isFocused ? 2 : 1;
+          minimapCtx.beginPath();
+          minimapCtx.roundRect(cx, cy, w, h, 2);
+          minimapCtx.fill(); minimapCtx.stroke();
+          // left accent bar
+          minimapCtx.fillStyle = hex;
+          minimapCtx.fillRect(cx, cy, Math.max(1.5, 3 * scale), h);
+        });
+
+        // viewport indicator
+        const wrapR = boardWrap.getBoundingClientRect();
+        // viewport in board-space
+        const vpLeft = (-S.pan.x) / S.zoom;
+        const vpTop = (-S.pan.y) / S.zoom;
+        const vpW = wrapR.width / S.zoom;
+        const vpH = wrapR.height / S.zoom;
+        // convert to minimap display space (display is MM_W/2 × MM_H/2 px)
+        const mmDisplayScale = 0.5; // canvas is 2x
+        const vx = (vpLeft * scale + offX) * mmDisplayScale;
+        const vy = (vpTop * scale + offY) * mmDisplayScale;
+        const vw = vpW * scale * mmDisplayScale;
+        const vh = vpH * scale * mmDisplayScale;
+        minimapVP.style.display = '';
+        minimapVP.style.left = vx + 'px'; minimapVP.style.top = vy + 'px';
+        minimapVP.style.width = vw + 'px'; minimapVP.style.height = vh + 'px';
+
+        // store for click-to-pan
+        minimapEl._mmScale = scale; minimapEl._mmOffX = offX; minimapEl._mmOffY = offY;
+      }
+
+      // click minimap → pan board to that position
+      minimapEl.addEventListener('click', e => {
+        const r = minimapEl.getBoundingClientRect();
+        const clickX = (e.clientX - r.left) / r.width * MM_W;
+        const clickY = (e.clientY - r.top) / r.height * MM_H;
+        const sc = minimapEl._mmScale || 1;
+        const ox = minimapEl._mmOffX || 0, oy = minimapEl._mmOffY || 0;
+        const boardX = (clickX - ox) / sc;
+        const boardY = (clickY - oy) / sc;
+        const wrapR = boardWrap.getBoundingClientRect();
+        S.pan.x = wrapR.width / 2 - boardX * S.zoom;
+        S.pan.y = wrapR.height / 2 - boardY * S.zoom;
+        applyXform();
+        save();
+      });
 
       // ─── MODE ─────────────────────────────────────────────────────────────
       function setMode(m) {
@@ -1663,6 +1804,7 @@
             el.style.left = obj.x + 'px'; el.style.top = obj.y + 'px';
             redrawConnectors();
             if (isIdea && snapEnabled) drawGuides(el, obj);
+            updateMinimap();
           };
           const onUp = e => {
             el.style.zIndex = ''; el.style.transition = '';
@@ -1908,6 +2050,10 @@
             e.preventDefault();
             snapEnabled = !snapEnabled;
             toast(snapEnabled ? 'スナップ ON' : 'スナップ OFF');
+            break;
+          case 'M': // Shift+M: minimap toggle
+            e.preventDefault();
+            minimapEl.style.display = minimapEl.style.display === 'none' ? '' : 'none';
             break;
           case 'g':
             e.preventDefault();
