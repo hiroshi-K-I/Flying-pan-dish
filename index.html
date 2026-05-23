@@ -4758,7 +4758,7 @@
       ];
 
       // 絵文字ピッカーの状態
-      const EP = { open: false, catIdx: 0, sel: -1, filtered: [], cols: 9 };
+      const EP = { open: false, catIdx: 0, sel: -1, filtered: [] };
 
       function epOpen() {
         const ta = document.getElementById('note-ta');
@@ -4832,12 +4832,20 @@
         // dir: 'right'|'left'|'up'|'down'
         if (!EP.filtered.length) return;
         const n = EP.filtered.length;
-        const cols = EP.cols;
+        // 実際のDOM列数を計算（ハードコードではなくレイアウトから取得）
+        const btns = document.getElementById('ep-grid').querySelectorAll('.ep-em');
+        let cols = 9; // フォールバック
+        if (btns.length >= 2) {
+          const firstY = btns[0].getBoundingClientRect().top;
+          let c = 0;
+          for (const b of btns) { if (Math.abs(b.getBoundingClientRect().top - firstY) < 4) c++; else break; }
+          if (c > 0) cols = c;
+        }
         let s = EP.sel < 0 ? 0 : EP.sel;
         if (dir === 'right') s = Math.min(s + 1, n - 1);
         else if (dir === 'left') s = Math.max(s - 1, 0);
         else if (dir === 'down') s = Math.min(s + cols, n - 1);
-        else if (dir === 'up') { s = s - cols; if (s < 0) return; } // 上端で検索に戻らない
+        else if (dir === 'up') { s = s - cols; if (s < 0) return; }
         EP.sel = s;
         epRenderGrid();
       }
