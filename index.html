@@ -1021,6 +1021,14 @@
       white-space: nowrap;
     }
 
+    #note-main-top .nm-del {
+      margin-left: auto;
+      color: var(--pink);
+      border-color: var(--pink);
+      flex-shrink: 0;
+    }
+    #note-main-top .nm-del:hover { background: var(--pink); color: #fff; }
+
     #note-edit-area {
       flex: 1;
       display: flex;
@@ -1471,7 +1479,7 @@
         <button class="vs-btn" data-view="graph">GRAPH</button>
       </div>
       <div style="margin-left:auto;display:flex;align-items:center;gap:6px;">
-        <span class="nt-hint">Ctrl+1/2/3 ビュー切替 &nbsp;|&nbsp; n 新規 &nbsp;|&nbsp; e 編集 &nbsp;|&nbsp; p プレビュー &nbsp;|&nbsp; Alt+↑↓/[ ] 移動</span>
+        <span class="nt-hint">Ctrl+←→ ビュー切替 &nbsp;|&nbsp; ↑↓ 移動 &nbsp;|&nbsp; n 新規 &nbsp;|&nbsp; e 編集 &nbsp;|&nbsp; p プレビュー &nbsp;|&nbsp; Del 削除</span>
         <button class="nv-btn" id="note-txt-export" title="現在のメモをテキストファイルとして保存">TXT</button>
         <button class="nv-btn" id="note-json-export" title="環境全体をJSONで保存">JSON出力</button>
         <button class="nv-btn" id="note-json-import" title="JSONから読み込み">JSON読込</button>
@@ -1493,6 +1501,7 @@
         <div id="note-main-top">
           <span class="nm-color" id="note-color"></span>
           <span class="nm-name" id="note-name">メモを選択</span>
+          <button class="nv-btn nm-del" id="note-delete-btn" title="このメモを削除 (Del)">削除</button>
         </div>
         <div id="note-edit-area">
           <textarea id="note-ta" placeholder="# タイトル&#10;&#10;マークダウンで記述。[[別のメモ]] でリンク。" spellcheck="false"></textarea>
@@ -1782,12 +1791,8 @@
         if (!raw) return `<div class="idea-body empty">アイデアを入力...</div>`;
         const allLines = raw.split('\n');
         const titleLine = (allLines.find(l => l.trim()) || '').replace(/^#{1,6}\s*/, '').trim();
-        const rest = allLines.slice(allLines.indexOf(allLines.find(l => l.trim())) + 1).join('\n').trim();
         const wl = s => esc(s).replace(/\[\[([^\]]+)\]\]/g, '<span class="idea-wl">$1</span>');
-        const multi = rest.length > 0;
-        return `${multi ? '<span class="idea-doc-badge" title="メモを開く">≡</span>' : ''}
-      <div class="idea-title">${wl(titleLine || '(無題)')}</div>
-      ${rest ? `<div class="idea-snip">${wl(rest)}</div>` : ''}`;
+        return `<div class="idea-title">${wl(titleLine || '(無題)')}</div>`;
       }
 
       function renderIdea(id, animate) {
@@ -2332,39 +2337,46 @@
 
       // ─── KEYBOARD ─────────────────────────────────────────────────────────
       document.addEventListener('keydown', e => {
-        // Global view shortcuts: Ctrl+1/2/3 from any view
-        if (e.ctrlKey && !e.shiftKey && !e.altKey && (e.key === '1' || e.key === '2' || e.key === '3')) {
-          const ae = document.activeElement;
-          const inInput = ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA');
-          if (!inInput) {
-            e.preventDefault();
-            if (e.key === '1') switchView('board');
-            else if (e.key === '2') switchView('note');
-            else if (e.key === '3') switchView('graph');
-            return;
-          }
+        const ae = document.activeElement;
+        const inInput = ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA');
+
+        // ─ グローバル: Ctrl+←→ でビューを順送り・逆送り ─
+        if (e.ctrlKey && !e.shiftKey && !e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && !inInput) {
+          e.preventDefault();
+          const views = ['board', 'note', 'graph'];
+          const cur = views.indexOf(S.view);
+          const next = e.key === 'ArrowRight' ? (cur + 1) % 3 : (cur + 2) % 3;
+          switchView(views[next]);
+          return;
         }
-        // Note view: native input behavior, Escape returns to board
+        // ─ グローバル: Ctrl+1/2/3 でビュー直接指定 ─
+        if (e.ctrlKey && !e.shiftKey && !e.altKey && (e.key === '1' || e.key === '2' || e.key === '3') && !inInput) {
+          e.preventDefault();
+          if (e.key === '1') switchView('board');
+          else if (e.key === '2') switchView('note');
+          else if (e.key === '3') switchView('graph');
+          return;
+        }
+
+        // Note view / Graph view: Escape で入力解除 → ボードへ
         if (S.view !== 'board') {
           if (e.key === 'Escape') {
-            const ae = document.activeElement;
             if (ae && (ae.id === 'note-ta' || ae.id === 'note-search')) { ae.blur(); return; }
             switchView('board');
             return;
           }
-          // Note view shortcuts
+          // Note view専用ショートカット
           if (S.view === 'note') {
-            const ae = document.activeElement;
             const inTA = ae && ae.id === 'note-ta';
             const inSearch = ae && ae.id === 'note-search';
-            const inInput = inTA || inSearch;
-            // Ctrl+P: toggle preview from anywhere
+            const inNoteInput = inTA || inSearch;
+            // Ctrl+P: プレビュー切替（どこからでも）
             if (e.ctrlKey && e.key === 'p') { e.preventDefault(); toggleNotePreview(); return; }
             // Layout-independent bracket detection ([/{ = left, ]/} = right)
             const brL = e.key === '[' || e.key === '{';
             const brR = e.key === ']' || e.key === '}';
-            // Shift+[ ]: manual reorder
-            if (!inInput && e.shiftKey && (brL || brR)) {
+            // Shift+[]: 手動並び替え（入力外）
+            if (!inNoteInput && e.shiftKey && (brL || brR)) {
               e.preventDefault();
               if (S.noteSort !== 'manual') {
                 S.noteOrder = getSortedNoteItems('').map(o => o.id);
@@ -2380,11 +2392,11 @@
               }
               return;
             }
-            // Navigation: Alt+↑↓ or [ ] outside input
+            // ↑↓ or []: メモ移動（テキストエリア外のみ。入力中は自然なカーソル動作を維持）
             let step = 0;
-            if ((e.altKey && e.key === 'ArrowUp') || (!inInput && !e.shiftKey && brL)) step = -1;
-            if ((e.altKey && e.key === 'ArrowDown') || (!inInput && !e.shiftKey && brR)) step = 1;
-            if (step !== 0) {
+            if (!inTA && (e.key === 'ArrowUp' || (!inNoteInput && !e.shiftKey && brL))) step = -1;
+            if (!inTA && (e.key === 'ArrowDown' || (!inNoteInput && !e.shiftKey && brR))) step = 1;
+            if (step !== 0 && !e.ctrlKey && !e.altKey) {
               e.preventDefault();
               const filter = document.getElementById('note-search').value.trim().toLowerCase();
               const sorted = getSortedNoteItems(filter);
@@ -2394,11 +2406,15 @@
               selectNote(next.id);
               return;
             }
-            // Keys outside input
-            if (!inInput) {
+            // 入力外のキー操作
+            if (!inNoteInput) {
               if (e.key === 'n') { e.preventDefault(); document.getElementById('note-new').click(); return; }
               if ((e.key === 'Enter' && !e.shiftKey) || e.key === 'e') { e.preventDefault(); enterNoteEdit(); return; }
               if (e.key === 'p') { e.preventDefault(); toggleNotePreview(); return; }
+              // Delete/Backspace: アクティブなメモを削除
+              if ((e.key === 'Delete' || e.key === 'Backspace') && S.activeNote != null) {
+                e.preventDefault(); deleteActiveNote(); return;
+              }
             }
           }
           return;
@@ -3491,6 +3507,34 @@
         save(); updateStat(); updateCmd();
       }
 
+      // NOTE ビューでアクティブなメモを削除し、隣のメモへ自動移動する。
+      function deleteActiveNote() {
+        const id = S.activeNote;
+        if (id == null || !S.ideas[id]) return;
+        const sorted = getSortedNoteItems(document.getElementById('note-search')?.value.trim().toLowerCase() || '');
+        const idx = sorted.findIndex(o => o.id === id);
+        // 削除後に選択する隣のメモを決める（次 → 前 → なし）
+        const nextId = sorted[idx + 1]?.id ?? sorted[idx - 1]?.id ?? null;
+        // コネクタをクリアし、リンクブロックも再構築する
+        S.connectors = S.connectors.filter(c =>
+          !(c.from.kind === 'idea' && c.from.id === id) &&
+          !(c.to.kind === 'idea' && c.to.id === id));
+        rebuildAllNoteLinkBlocks();
+        delete S.ideas[id];
+        S.noteOrder = S.noteOrder.filter(oid => oid !== id);
+        S.books.forEach(b => { b.children = b.children.filter(c => c !== id); });
+        S.activeNote = null;
+        save();
+        renderNoteList(document.getElementById('note-search')?.value.trim().toLowerCase() || '');
+        if (nextId != null && S.ideas[nextId]) selectNote(nextId);
+        else {
+          document.getElementById('note-name').textContent = 'メモを選択';
+          document.getElementById('note-color').style.background = '';
+          document.getElementById('note-ta').value = '';
+          document.getElementById('note-preview').innerHTML = '';
+        }
+      }
+
       // ─── CMD / STATUS ─────────────────────────────────────────────────────
       // 現在のモード・フォーカス状態に応じてコマンドバーのヘルプテキストとフォーカスバッジを更新する。
       function updateCmd() {
@@ -4086,6 +4130,7 @@
         importJSON(ev);
       });
       document.getElementById('note-txt-export').addEventListener('click', exportCurrentNoteText);
+      document.getElementById('note-delete-btn').addEventListener('click', deleteActiveNote);
 
       // ─── MARKDOWN EXPORT ──────────────────────────────────────────────────
       // 全アイデアをゾーン章・親子ツリー構造で整形してMarkdownファイルとしてダウンロードする。
