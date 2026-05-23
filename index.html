@@ -763,7 +763,8 @@
     }
 
     /* ─── VIEW SWITCH ─── */
-    #view-switch {
+    /* ビュー切り替えボタングループ（全ビュー共通） */
+    #view-switch, .view-switch {
       display: flex;
       gap: 2px;
       background: var(--bg);
@@ -1471,9 +1472,7 @@
   <!-- ─── NOTE VIEW ─── -->
   <div id="note-view">
     <div id="note-top">
-      <span class="nt-title">NOTE</span>
-      <div id="view-switch-n"
-        style="display:flex;border:1px solid var(--card-border);border-radius:5px;overflow:hidden;">
+      <div id="view-switch-n" class="view-switch">
         <button class="vs-btn" data-view="board">BOARD</button>
         <button class="vs-btn active" data-view="note">NOTE</button>
         <button class="vs-btn" data-view="graph">GRAPH</button>
@@ -1516,8 +1515,7 @@
   <!-- ─── GRAPH VIEW ─── -->
   <div id="graph-view">
     <div id="graph-top">
-      <span class="nt-title">GRAPH</span>
-      <div style="display:flex;border:1px solid var(--card-border);border-radius:5px;overflow:hidden;">
+      <div id="view-switch-g" class="view-switch">
         <button class="vs-btn" data-view="board">BOARD</button>
         <button class="vs-btn" data-view="note">NOTE</button>
         <button class="vs-btn active" data-view="graph">GRAPH</button>
@@ -2375,16 +2373,19 @@
             // Layout-independent bracket detection ([/{ = left, ]/} = right)
             const brL = e.key === '[' || e.key === '{';
             const brR = e.key === ']' || e.key === '}';
-            // Shift+[]: 手動並び替え（入力外）
-            if (!inNoteInput && e.shiftKey && (brL || brR)) {
+            // Shift+↑↓ or Shift+[]: 手動並び替え（入力外）
+            const shiftMove = !inNoteInput && e.shiftKey &&
+              (brL || brR || e.key === 'ArrowUp' || e.key === 'ArrowDown');
+            if (shiftMove) {
               e.preventDefault();
               if (S.noteSort !== 'manual') {
                 S.noteOrder = getSortedNoteItems('').map(o => o.id);
                 S.noteSort = 'manual';
               }
+              const isUp = brL || e.key === 'ArrowUp';
               const cur = S.noteOrder.indexOf(S.activeNote);
               if (cur >= 0) {
-                const nxt = brL ? cur - 1 : cur + 1;
+                const nxt = isUp ? cur - 1 : cur + 1;
                 if (nxt >= 0 && nxt < S.noteOrder.length) {
                   [S.noteOrder[cur], S.noteOrder[nxt]] = [S.noteOrder[nxt], S.noteOrder[cur]];
                   save(); renderNoteList('');
@@ -2392,10 +2393,10 @@
               }
               return;
             }
-            // ↑↓ or []: メモ移動（テキストエリア外のみ。入力中は自然なカーソル動作を維持）
+            // ↑↓ or []: メモ移動（Shiftなし・テキストエリア外のみ）
             let step = 0;
-            if (!inTA && (e.key === 'ArrowUp' || (!inNoteInput && !e.shiftKey && brL))) step = -1;
-            if (!inTA && (e.key === 'ArrowDown' || (!inNoteInput && !e.shiftKey && brR))) step = 1;
+            if (!inTA && !e.shiftKey && (e.key === 'ArrowUp' || (!inNoteInput && brL))) step = -1;
+            if (!inTA && !e.shiftKey && (e.key === 'ArrowDown' || (!inNoteInput && brR))) step = 1;
             if (step !== 0 && !e.ctrlKey && !e.altKey) {
               e.preventDefault();
               const filter = document.getElementById('note-search').value.trim().toLowerCase();
