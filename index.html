@@ -1438,11 +1438,15 @@
 <body>
 
   <div id="header">
+    <div id="view-switch">
+      <button class="vs-btn active" data-view="board">BOARD</button>
+      <button class="vs-btn" data-view="note">NOTE</button>
+      <button class="vs-btn" data-view="graph">GRAPH</button>
+    </div>
     <div id="mode-badge" class="select">
       <div id="mode-dot"></div>
       <span id="mode-txt">SELECT</span>
     </div>
-    <div id="app-title">IDEA BOARD</div>
     <div class="hints">
       <div class="hint"><span class="hk">i</span>idea</div>
       <div class="hint"><span class="hk">f</span>focus</div>
@@ -1459,11 +1463,6 @@
       <div class="hint"><span class="hk">s</span>sort</div>
     </div>
     <div id="toolbar">
-      <div id="view-switch">
-        <button class="vs-btn active" data-view="board">BOARD</button>
-        <button class="vs-btn" data-view="note">NOTE</button>
-        <button class="vs-btn" data-view="graph">GRAPH</button>
-      </div>
       <button class="tb-btn" id="theme-btn" title="テーマ切替">◑</button>
       <button class="tb-btn" onclick="App.exportMarkdown()">MD</button>
     </div>
@@ -2370,6 +2369,19 @@
             const inNoteInput = inTA || inSearch;
             // Ctrl+P: プレビュー切替（どこからでも）
             if (e.ctrlKey && e.key === 'p') { e.preventDefault(); toggleNotePreview(); return; }
+            // Ctrl+↑↓: 編集モードのままメモを切り替え（テキストエリア内でも有効）
+            if (inTA && e.ctrlKey && !e.altKey && !e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+              e.preventDefault();
+              const ta = document.getElementById('note-ta');
+              if (S.activeNote != null && S.ideas[S.activeNote]) { S.ideas[S.activeNote].text = ta.value; save(); }
+              const filter = document.getElementById('note-search').value.trim().toLowerCase();
+              const sorted = getSortedNoteItems(filter);
+              if (!sorted.length) return;
+              const cur = sorted.findIndex(o => o.id === S.activeNote);
+              const nxt = sorted[((cur < 0 ? 0 : cur) + (e.key === 'ArrowDown' ? 1 : -1) + sorted.length) % sorted.length];
+              selectNote(nxt.id); enterNoteEdit();
+              return;
+            }
             // Layout-independent bracket detection ([/{ = left, ]/} = right)
             const brL = e.key === '[' || e.key === '{';
             const brR = e.key === ']' || e.key === '}';
@@ -4054,6 +4066,25 @@
         wlScan(e.target);
       });
       document.getElementById('note-ta').addEventListener('keydown', e => {
+        // Alt+↑↓: 現在行を上または下に移動
+        if (e.altKey && !e.ctrlKey && !e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+          e.preventDefault(); e.stopPropagation();
+          const ta = e.currentTarget;
+          const lines = ta.value.split('\n');
+          if (lines.length <= 1) return;
+          const before = ta.value.substring(0, ta.selectionStart);
+          const lineIdx = before.split('\n').length - 1;
+          const col = ta.selectionStart - (before.lastIndexOf('\n') + 1);
+          const swapIdx = lineIdx + (e.key === 'ArrowDown' ? 1 : -1);
+          if (swapIdx < 0 || swapIdx >= lines.length) return;
+          [lines[lineIdx], lines[swapIdx]] = [lines[swapIdx], lines[lineIdx]];
+          ta.value = lines.join('\n');
+          const newLineStart = lines.slice(0, swapIdx).reduce((s, l) => s + l.length + 1, 0);
+          const newPos = newLineStart + Math.min(col, lines[swapIdx].length);
+          ta.setSelectionRange(newPos, newPos);
+          if (S.activeNote != null && S.ideas[S.activeNote]) { S.ideas[S.activeNote].text = ta.value; save(); }
+          return;
+        }
         // Shift+Enter: exit edit mode
         if (e.key === 'Enter' && e.shiftKey && !wlA.active) { e.preventDefault(); e.stopPropagation(); document.getElementById('note-ta').blur(); return; }
         if (!wlA.active) return;
