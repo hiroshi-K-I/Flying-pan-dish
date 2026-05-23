@@ -3715,47 +3715,85 @@
       }
 
       // Minimal dependency-free markdown renderer (escape-first)
-      // 外部ライブラリ不要の独自マークダウンレンダラー。コードブロック・見出し・リスト・タスク・ウィキリンクをHTMLに変換する。
+      // 外部ライブラリ不要の独自マークダウンレンダラー。
+      // 対応記法: 見出し・コードブロック・表・リスト・タスク・引用・太字/斜体/打ち消し/ハイライト・ウィキリンク・URL
       function mdRender(src) {
         src = String(src || '');
         const blocks = [];
-        // fenced code
+        // fenced code blocks を先に抜き出してプレースホルダーに置換
         src = src.replace(/```([\s\S]*?)```/g, (_, c) => {
           blocks.push(`<pre><code>${esc(c.replace(/^\n/, ""))}</code></pre>`);
           return `\x00B${blocks.length - 1}\x00`;
         });
         const lines = src.split('\n');
         let html = '';
-        // nested list stack: [{type:"ul"|"ol", indent:number}]
         const listStack = [];
         const closeListsTo = (targetIndent) => {
-          while (listStack.length && listStack[listStack.length - 1].indent > targetIndent) {
+          while (listStack.length && listStack[listStack.length - 1].indent > targetIndent)
             html += `</${listStack.pop().type}>`;
-          }
         };
         const closeLists = () => { while (listStack.length) html += `</${listStack.pop().type}>`; };
+
+        // インライン要素の変換（esc() 後に適用）
         const inline = s => {
           s = esc(s);
+          // ウィキリンク
           s = s.replace(/\[\[([^\]]+)\]\]/g, (_, t) => {
             t = t.trim();
             const found = findIdeaByTitle(t);
             return `<span class="wikilink${found ? "" : " missing"}" data-wl="${esc(t)}">${esc(t)}</span>`;
           });
-          s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
-          s = s.replace(/~~([^~]+)~~/g, '<del>$1</del>');
-          s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-          s = s.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
-          s = s.replace(/(^|[^_])_([^_\n]+)_/g, '$1<em>$2</em>');
-          // named links before bare URLs
+          s = s.replace(/`([^`]+)`/g, '<code>$1</code>');           // インラインコード
+          s = s.replace(/~~([^~]+)~~/g, '<del>$1</del>');            // 打ち消し
+          s = s.replace(/==([^=\n]+)==/g, '<mark>$1</mark>');        // ハイライト
+          s = s.replace(/\*\*\*([^*]+)\*\*\*/g, '<strong><em>$1</em></strong>'); // 太字+斜体
+          s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');  // 太字
+          s = s.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>'); // 斜体
+          s = s.replace(/(^|[^_])_([^_\n]+)_/g, '$1<em>$2</em>');   // 斜体 (_)
           s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
-            '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
-          // bare URLs not already inside an href
+            '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>'); // 名前付きリンク
           s = s.replace(/(^|[\s(])(https?:\/\/[^\s<)"]+)/g,
-            '$1<a href="$2" target="_blank" rel="noopener noreferrer">$2</a>');
+            '$1<a href="$2" target="_blank" rel="noopener noreferrer">$2</a>'); // 裸URL
           return s;
         };
+
+        // テーブル行バッファ
+        let tableLines = [];
+        const flushTable = () => {
+          if (!tableLines.length) return;
+          const rows = tableLines.map(l =>
+            l.replace(/^\||\|$/g, '').split('|').map(c => c.trim())
+          );
+          const hasSep = rows.length >= 2 && rows[1].every(c => /^:?-+:?$/.test(c));
+          let t = '<table>';
+          if (hasSep) {
+            const aligns = rows[1].map(c => {
+              if (c.startsWith(':') && c.endsWith(':')) return 'center';
+              if (c.endsWith(':')) return 'right';
+              return 'left';
+            });
+            t += '<thead><tr>' + rows[0].map((c, i) =>
+              `<th style="text-align:${aligns[i]}">${inline(c)}</th>`).join('') + '</tr></thead><tbody>';
+            for (let i = 2; i < rows.length; i++)
+              t += '<tr>' + rows[i].map((c, j) =>
+                `<td style="text-align:${aligns[j] || 'left'}">${inline(c)}</td>`).join('') + '</tr>';
+            t += '</tbody>';
+          } else {
+            t += '<tbody>' + rows.map(row =>
+              '<tr>' + row.map(c => `<td>${inline(c)}</td>`).join('') + '</tr>'
+            ).join('') + '</tbody>';
+          }
+          html += t + '</table>';
+          tableLines = [];
+        };
+
         for (let raw of lines) {
           const line = raw.replace(/\r$/, '');
+
+          // テーブル行（|で始まる）
+          if (/^\|/.test(line)) { closeLists(); tableLines.push(line); continue; }
+          flushTable();
+
           const ph = line.match(/^\x00B(\d+)\x00$/);
           if (ph) { closeLists(); html += blocks[+ph[1]]; continue; }
           if (/^\s*$/.test(line)) { closeLists(); continue; }
@@ -3763,39 +3801,38 @@
           if ((m = line.match(/^(#{1,6})\s+(.*)$/))) {
             closeLists(); html += `<h${m[1].length}>${inline(m[2])}</h${m[1].length}>`; continue;
           }
-          if (/^\s*([-*_])\s*\1\s*\1[\s\1]*$/.test(line)) { closeLists(); html += "<hr>"; continue; }
+          if (/^\s*([-*_])\s*\1\s*\1[\s\1]*$/.test(line)) { closeLists(); html += '<hr>'; continue; }
           if ((m = line.match(/^(>\s?)(.*)/))) { closeLists(); html += `<blockquote>${inline(m[2])}</blockquote>`; continue; }
-          // task list
+          // タスクリスト
           if ((m = line.match(/^(\s*)([-*+])\s+\[([ xX])\]\s+(.*)/))) {
-            const indent = m[1].length;
-            const done = m[3].toLowerCase() === "x";
+            const indent = m[1].length, done = m[3].toLowerCase() === 'x';
             closeListsTo(indent - 1);
-            if (!listStack.length || listStack[listStack.length - 1].indent < indent) {
-              html += "<ul>"; listStack.push({ type: "ul", indent });
-            }
-            html += `<li class="task${done ? " done" : ""}><span class="cb">${done ? "☑" : "☐"}</span> ${inline(m[4])}</li>`; continue;
+            if (!listStack.length || listStack[listStack.length - 1].indent < indent)
+              { html += '<ul>'; listStack.push({ type: 'ul', indent }); }
+            html += `<li class="task${done ? ' done' : ''}"><span class="cb">${done ? '☑' : '☐'}</span> ${inline(m[4])}</li>`; continue;
           }
-          // unordered list
+          // 箇条書きリスト
           if ((m = line.match(/^(\s*)[-*+]\s+(.*)/))) {
             const indent = m[1].length;
             closeListsTo(indent - 1);
-            if (!listStack.length || listStack[listStack.length - 1].indent < indent) {
-              html += "<ul>"; listStack.push({ type: "ul", indent });
-            }
+            if (!listStack.length || listStack[listStack.length - 1].indent < indent)
+              { html += '<ul>'; listStack.push({ type: 'ul', indent }); }
             html += `<li>${inline(m[2])}</li>`; continue;
           }
-          // ordered list
+          // 番号付きリスト
           if ((m = line.match(/^(\s*)\d+\.\s+(.*)/))) {
             const indent = m[1].length;
             closeListsTo(indent - 1);
-            if (!listStack.length || listStack[listStack.length - 1].indent < indent) {
-              html += "<ol>"; listStack.push({ type: "ol", indent });
-            }
+            if (!listStack.length || listStack[listStack.length - 1].indent < indent)
+              { html += '<ol>'; listStack.push({ type: 'ol', indent }); }
             html += `<li>${inline(m[2])}</li>`; continue;
           }
-          closeLists(); html += `<p>${inline(line)}</p>`;
+          // 段落（行末スペース2つ → <br>）
+          const trail = line.endsWith('  ');
+          closeLists();
+          html += `<p>${inline(trail ? line.slice(0, -2) : line)}${trail ? '<br>' : ''}</p>`;
         }
-        closeLists();
+        closeLists(); flushTable();
         return html;
       }
       // Links for a given idea id
@@ -3958,11 +3995,41 @@
         }
       }
 
+      // マークダウン記法リファレンス（右ペイン常時表示）
+      const MD_CHEAT = `<div class="md-cheat">
+  <div class="md-cheat-hd">記法リファレンス</div>
+  <div class="md-cheat-sec">見出し</div>
+  <div class="md-cheat-row"><code># H1</code> <code>## H2</code> <code>### H3–6</code></div>
+  <div class="md-cheat-sec">インライン</div>
+  <div class="md-cheat-row"><code>**太字**</code> → <strong>太字</strong></div>
+  <div class="md-cheat-row"><code>*斜体*</code> → <em>斜体</em></div>
+  <div class="md-cheat-row"><code>***太字斜体***</code> → <strong><em>太字斜体</em></strong></div>
+  <div class="md-cheat-row"><code>~~打ち消し~~</code> → <del>打ち消し</del></div>
+  <div class="md-cheat-row"><code>==ハイライト==</code> → <span class="md-mark">ハイライト</span></div>
+  <div class="md-cheat-row"><code>\`インラインコード\`</code></div>
+  <div class="md-cheat-row"><code>[テキスト](url)</code></div>
+  <div class="md-cheat-sec">リスト・タスク</div>
+  <div class="md-cheat-row"><code>- 項目</code> / <code>1. 番号付き</code></div>
+  <div class="md-cheat-row"><code>- [ ] 未完了タスク</code></div>
+  <div class="md-cheat-row"><code>- [x] 完了タスク</code></div>
+  <div class="md-cheat-sec">ブロック要素</div>
+  <div class="md-cheat-row"><code>&gt; 引用</code></div>
+  <div class="md-cheat-row"><code>\`\`\`コードブロック\`\`\`</code></div>
+  <div class="md-cheat-row"><code>---</code> 区切り線</div>
+  <div class="md-cheat-row">行末スペース2つ → 改行</div>
+  <div class="md-cheat-sec">表</div>
+  <div class="md-cheat-row"><code>| 列A | 列B |</code></div>
+  <div class="md-cheat-row"><code>| :-- | --: |</code> <span style="font-size:9px;opacity:.6">左/右寄せ</span></div>
+  <div class="md-cheat-row"><code>| 値1 | 値2 |</code></div>
+  <div class="md-cheat-sec">ウィキリンク</div>
+  <div class="md-cheat-row"><code>[[別のメモ名]]</code></div>
+</div>`;
+
       // ノートビュー右パネルに発リンク・バックリンク・ボード接続の各セクションを描画する。
       function renderNoteLinks() {
         const id = S.activeNote;
         const box = document.getElementById('note-links');
-        if (id == null) { box.innerHTML = ''; return; }
+        if (id == null) { box.innerHTML = MD_CHEAT; return; }
         const mkItem = (tid, withConnect) => {
           const o = S.ideas[tid]; if (!o) return '';
           const linked = withConnect && !hasConnectorBetween(id, tid);
@@ -3994,7 +4061,7 @@
         h += back.length ? back.map(b => mkBackItem(b)).join('') : '<div class="nlk-empty">なし</div>';
         h += `<div class="nlk-sec">ボード接続</div>`;
         h += conn.length ? conn.map(c => mkItem(c, false)).join('') : '<div class="nlk-empty">なし</div>';
-        box.innerHTML = h;
+        box.innerHTML = h + MD_CHEAT;
         box.querySelectorAll('.nlk-item').forEach(el => {
           const go = el.dataset.go, nw = el.dataset.new;
           el.addEventListener('click', e => {
