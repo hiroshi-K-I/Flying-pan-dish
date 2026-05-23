@@ -694,6 +694,16 @@
     }
 
     /* ─── MOVE OVERLAY ─── */
+    #rubber-band {
+      position: absolute;
+      border: 1.5px solid var(--accent);
+      background: rgba(123, 108, 246, 0.08);
+      border-radius: 3px;
+      pointer-events: none;
+      display: none;
+      z-index: 50;
+    }
+
     #move-overlay {
       position: fixed;
       inset: 0;
@@ -1014,6 +1024,8 @@
     <svg id="svg-overlay" xmlns="http://www.w3.org/2000/svg">
       <defs id="svg-defs"></defs>
     </svg>
+    <!-- rubber band selection rect, in screen space -->
+    <div id="rubber-band"></div>
   </div>
 
   <!-- move grid overlay -->
@@ -1865,13 +1877,77 @@
         redrawConnectors();
       }
 
-      // ─── PAN / ZOOM ───────────────────────────────────────────────────────
+      // ─── PAN / ZOOM / RUBBER BAND ─────────────────────────────────────────
+      const rubberBand = document.getElementById('rubber-band');
+      let rbActive = false, rbStart = {};
+
       boardWrap.addEventListener('mousedown', e => {
         if (e.button === 1 || (e.button === 0 && e.altKey)) {
           e.preventDefault();
           S.panning = true;
           S.panOrigin = { x: e.clientX - S.pan.x, y: e.clientY - S.pan.y };
           boardWrap.classList.add('panning');
+          return;
+        }
+        // left-click on empty board → rubber band
+        const isBoard = e.target === boardWrap || e.target === board ||
+                        e.target === objLayer || e.target === zonesLayer;
+        if (e.button === 0 && isBoard && S.mode === 'select') {
+          const wrapR = boardWrap.getBoundingClientRect();
+          rbStart = { x: e.clientX - wrapR.left, y: e.clientY - wrapR.top };
+          rbActive = true;
+          rubberBand.style.display = 'block';
+          rubberBand.style.left = rbStart.x + 'px'; rubberBand.style.top = rbStart.y + 'px';
+          rubberBand.style.width = '0'; rubberBand.style.height = '0';
+        }
+      });
+
+      document.addEventListener('mousemove', e => {
+        if (rbActive) {
+          const wrapR = boardWrap.getBoundingClientRect();
+          const cx = e.clientX - wrapR.left, cy = e.clientY - wrapR.top;
+          const x = Math.min(cx, rbStart.x), y = Math.min(cy, rbStart.y);
+          const w = Math.abs(cx - rbStart.x), h = Math.abs(cy - rbStart.y);
+          rubberBand.style.left = x + 'px'; rubberBand.style.top = y + 'px';
+          rubberBand.style.width = w + 'px'; rubberBand.style.height = h + 'px';
+        }
+      });
+
+      document.addEventListener('mouseup', e => {
+        if (rbActive) {
+          rbActive = false;
+          rubberBand.style.display = 'none';
+          const wrapR = boardWrap.getBoundingClientRect();
+          const cx = e.clientX - wrapR.left, cy = e.clientY - wrapR.top;
+          const rx1 = Math.min(cx, rbStart.x), ry1 = Math.min(cy, rbStart.y);
+          const rx2 = Math.max(cx, rbStart.x), ry2 = Math.max(cy, rbStart.y);
+          if (rx2 - rx1 < 6 && ry2 - ry1 < 6) return; // too small, treat as click
+          // convert screen rect to board-space
+          const toB = (sx, sy) => ({
+            x: (sx - S.pan.x) / S.zoom,
+            y: (sy - S.pan.y) / S.zoom
+          });
+          const p1 = toB(rx1, ry1), p2 = toB(rx2, ry2);
+          // select all ideas within rect
+          const selected = [];
+          Object.values(S.ideas).forEach(o => {
+            const el = document.getElementById(`idea-${o.id}`);
+            if (!el || el.style.display === 'none') return;
+            const cx2 = o.x + el.offsetWidth / 2, cy2 = o.y + el.offsetHeight / 2;
+            if (cx2 >= p1.x && cx2 <= p2.x && cy2 >= p1.y && cy2 <= p2.y) {
+              selected.push({ kind: 'idea', id: o.id });
+            }
+          });
+          if (selected.length > 0) {
+            S.cmdMode = 'move';
+            S.moveSelection = selected;
+            selected.forEach(({ kind, id }) => {
+              const el = getEl(kind, id);
+              if (el) el.classList.add('focused');
+            });
+            toast(`${selected.length}件選択 — 矢印キーで移動  Enter:確定  Esc:終了`);
+            updateCmd();
+          }
         }
       });
       document.addEventListener('mousemove', e => {
@@ -1994,6 +2070,65 @@
           e.preventDefault();
           S.lensDepth = +e.key;
           applyLens(); updateCmd(); return;
+        }
+
+        // ── Ctrl shortcuts ──
+        if (e.ctrlKey || e.metaKey) {
+          if (e.key === 'a') {
+            e.preventDefault();
+            // select all ideas → move mode
+            const all = Object.values(S.ideas)
+              .filter(o => { const el = document.getElementById(`idea-${o.id}`); return el && el.style.display !== 'none'; })
+              .map(o => ({ kind: 'idea', id: o.id }));
+            if (all.length) {
+              S.cmdMode = 'move'; S.moveSelection = all;
+              all.forEach(({ kind, id }) => { const el = getEl(kind, id); if (el) el.classList.add('focused'); });
+              toast(`${all.length}件全選択 — 矢印キーで移動  Enter:確定  Esc:終了`);
+              updateCmd();
+            }
+            return;
+          }
+          if (e.key === 'd') {
+            e.preventDefault();
+            if (S.focused?.kind === 'idea') {
+              const src = S.ideas[S.focused.id];
+              if (src) {
+                const id = `i${S.nextId++}`;
+                S.ideas[id] = { ...src, id, x: src.x + 24, y: src.y + 24 };
+                renderIdea(id, true); focus('idea', id); save(); updateStat();
+                toast('複製しました');
+              }
+            }
+            return;
+          }
+          return; // don't intercept other Ctrl combos
+        }
+
+        // ── Zoom shortcuts ──
+        if (e.key === '+' || e.key === '=') {
+          e.preventDefault();
+          const wrapR = boardWrap.getBoundingClientRect();
+          const cx = wrapR.width / 2, cy = wrapR.height / 2;
+          const nz = Math.min(2.5, S.zoom * 1.2);
+          S.pan.x = cx - (cx - S.pan.x) * (nz / S.zoom);
+          S.pan.y = cy - (cy - S.pan.y) * (nz / S.zoom);
+          S.zoom = nz; applyXform(); save(); return;
+        }
+        if (e.key === '-') {
+          e.preventDefault();
+          const wrapR = boardWrap.getBoundingClientRect();
+          const cx = wrapR.width / 2, cy = wrapR.height / 2;
+          const nz = Math.max(0.25, S.zoom / 1.2);
+          S.pan.x = cx - (cx - S.pan.x) * (nz / S.zoom);
+          S.pan.y = cy - (cy - S.pan.y) * (nz / S.zoom);
+          S.zoom = nz; applyXform(); save(); return;
+        }
+        if (e.key === '0') {
+          e.preventDefault();
+          S.zoom = 1;
+          const wrapR = boardWrap.getBoundingClientRect();
+          S.pan.x = wrapR.width / 2; S.pan.y = wrapR.height / 2;
+          applyXform(); save(); return;
         }
 
         // ── Arrow key movement of selected object ──
