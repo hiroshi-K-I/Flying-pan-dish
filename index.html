@@ -1214,6 +1214,50 @@
       opacity: .55;
     }
 
+    #note-preview h4 { font-size: 14px; margin: 12px 0 5px; font-weight: 600; }
+    #note-preview h5 { font-size: 13px; margin: 10px 0 4px; font-weight: 600; color: var(--muted); }
+    #note-preview h6 { font-size: 12px; margin: 8px 0 4px; font-weight: 600; color: var(--dim); }
+
+    #note-preview mark {
+      background: rgba(210, 153, 34, .28);
+      color: var(--text);
+      border-radius: 2px;
+      padding: 0 3px;
+    }
+
+    #note-preview table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 12px 0;
+    }
+    #note-preview th, #note-preview td {
+      border: 1px solid var(--card-border);
+      padding: 6px 12px;
+      font-size: 13px;
+      text-align: left;
+    }
+    #note-preview th { background: var(--card); font-weight: 600; }
+    #note-preview tr:nth-child(even) td { background: rgba(255,255,255,.025); }
+
+    /* ─── MARKDOWN CHEATSHEET (right pane) ─── */
+    .md-cheat { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--header-border); }
+    .md-cheat-hd {
+      font-size: 10px; font-weight: 700; color: var(--muted);
+      letter-spacing: .5px; text-transform: uppercase; margin-bottom: 10px;
+    }
+    .md-cheat-sec {
+      font-size: 10px; font-weight: 600; color: var(--muted); margin: 10px 0 4px;
+    }
+    .md-cheat-row { font-size: 11px; color: var(--dim); margin: 3px 0; line-height: 1.6; }
+    .md-cheat-row code {
+      background: rgba(110, 118, 129, .13); border-radius: 3px; padding: 0 4px;
+      font-size: 10px; font-family: 'SFMono-Regular', Consolas, monospace; color: var(--muted);
+    }
+    .md-cheat-row strong { color: var(--text); font-weight: 600; }
+    .md-cheat-row em { color: var(--text); font-style: italic; }
+    .md-cheat-row del { color: var(--dim); text-decoration: line-through; opacity: .7; }
+    .md-mark { background: rgba(210, 153, 34, .28); border-radius: 2px; padding: 0 3px; color: var(--text); }
+
     #note-preview ul ul,
     #note-preview ul ol,
     #note-preview ol ul,
