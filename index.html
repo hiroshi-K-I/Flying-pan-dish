@@ -987,6 +987,9 @@
     </div>
     <div id="toolbar">
       <button class="tb-btn" id="theme-btn" title="テーマ切替">◑</button>
+      <button class="tb-btn" onclick="App.exportJSON()">JSON出力</button>
+      <button class="tb-btn" id="json-import-btn">JSON読込</button>
+      <input type="file" id="json-import-input" accept=".json" style="display:none">
     </div>
   </div>
 
@@ -1059,15 +1062,7 @@
         moveSelection: [],     // {kind,id} objects accumulating for move
         lensMode: false,
         lensDepth: 1,
-        view: 'board',         // 'board'|'note'|'graph'
-        activeNote: null,      // idea id open in note view
-        notePreview: false,    // note view: show rendered preview
-        noteSort: 'az',         // 'az'|'za'|'new'|'old'|'manual'
-        noteOrder: [],           // manual sort order (array of idea IDs)
         graphPos: {},          // 'kind:id' → {x,y}
-        gPan: { x: 0, y: 0 },
-        gZoom: 1,
-        graphAnimId: null,
         theme: 'dark',
       };
 
@@ -1159,6 +1154,73 @@
         card.style.boxShadow = focused ? `0 0 0 1px ${hex}, 0 0 24px ${hex}4d` : '';
       }
 
+      // ─── BOOK MEMBERSHIP ─────────────────────────────────────────────────
+      function getBookedIdeas() {
+        const set = new Set();
+        S.books.forEach(bk => bk.children.forEach(c => set.add(c)));
+        return set;
+      }
+
+      // ─── BOOK ─────────────────────────────────────────────────────────────
+      function createBook(childIds) {
+        const pos = centerPos();
+        const id = `bk${S.nextId++}`;
+        S.books.push({ id, x: pos.x - 85, y: pos.y - 50, title: 'BOOK', children: childIds, expanded: false });
+        renderBook(id, true);
+        focus('book', id);
+        save(); updateStat();
+      }
+
+      function renderBook(id, animate) {
+        const bk = S.books.find(b => b.id === id);
+        if (!bk) return;
+        let el = document.getElementById(`book-${id}`);
+        const isNew = !el;
+        if (isNew) {
+          el = document.createElement('div');
+          el.id = `book-${id}`;
+          el.className = 'book';
+          objLayer.appendChild(el);
+          makeDraggable(el, () => bk, o => { });
+          el.addEventListener('click', e => {
+            e.stopPropagation();
+            if (S.mode === 'select') focus('book', id);
+          });
+          el.addEventListener('dblclick', e => {
+            e.stopPropagation();
+            toggleBook(id);
+          });
+        }
+        el.style.left = bk.x + 'px'; el.style.top = bk.y + 'px';
+        const bkhex = COLOR_HEX[bk.color || 'purple'];
+        const firstChild = bk.children[0] ? S.ideas[bk.children[0]] : null;
+        const titleText = firstChild?.text
+          ? esc(firstChild.text.split('\n')[0].slice(0, 40)) + (firstChild.text.length > 40 ? '…' : '')
+          : 'BOOK';
+        const restChildren = bk.children.slice(1);
+        const restTags = restChildren.map(c => {
+          const o = S.ideas[c];
+          const preview = o?.text ? esc(o.text.split('\n')[0].slice(0, 14)) + (o.text.length > 14 ? '…' : '') : '…';
+          return `<span class="btag" style="background:${bkhex}1a;border-color:${bkhex}44;color:${bkhex}">${preview}</span>`;
+        }).join('');
+        const expandedChildren = bk.expanded ? restChildren : [];
+        const exp = bk.expanded ? `<div class="book-expanded">${expandedChildren.map(c => {
+          const o = S.ideas[c];
+          return `<div class="book-inner">${esc(o ? o.text : '')}</div>`;
+        }).join('')}</div>` : '';
+        el.innerHTML = `<div class="book-stack"><div class="book-card">
+      <div class="book-hdr">
+        <span class="book-icon" style="color:${bkhex}">${bk.expanded ? '▼' : '▶'}</span>
+        <span class="book-ttl" style="font-size:11px;color:var(--text);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${titleText}</span>
+      </div>
+      <div class="book-tags">${restTags}</div>
+      ${exp}
+    </div></div>`;
+        const isFocusedBk = S.focused?.kind === 'book' && S.focused.id === id;
+        applyBookBorder(el, bk, isFocusedBk);
+        if (animate) { el.classList.add('spring-in'); setTimeout(() => el.classList.remove('spring-in'), 400); }
+      }
+
       function focus(kind, id) {
         clearFocus();
         S.focused = { kind, id };
@@ -1195,23 +1257,6 @@
         if (kind === 'zone') return document.getElementById(`zone-${id}`);
         if (kind === 'book') return document.getElementById(`book-${id}`);
         return null;
-      }
-
-      // ─── BOOK MEMBERSHIP ─────────────────────────────────────────────────
-      // いずれかのブックに属しているアイデアIDの集合（Set）を返す。
-      function getBookedIdeas() {
-        const set = new Set();
-        S.books.forEach(bk => bk.children.forEach(c => set.add(c)));
-        return set;
-      }
-      // ブックに収納されたアイデアを非表示にし、それ以外を表示してコネクターを再描画する。
-      function syncIdeaVisibility() {
-        const booked = getBookedIdeas();
-        Object.keys(S.ideas).forEach(id => {
-          const el = document.getElementById(`idea-${id}`);
-          if (el) el.style.display = booked.has(+id) ? 'none' : '';
-        });
-        redrawConnectors();
       }
 
       // ─── IDEA ─────────────────────────────────────────────────────────────
@@ -1277,7 +1322,6 @@
         if (isFocused) el.classList.add('focused');
         el.innerHTML = ideaCardHTML(obj);
         const badge = el.querySelector('.idea-doc-badge');
-        if (badge) badge.addEventListener('click', e => { e.stopPropagation(); openNote(id); });
         if (animate) { el.classList.add('spring-in'); setTimeout(() => el.classList.remove('spring-in'), 400); }
         // Respect book visibility
         const booked = getBookedIdeas();
@@ -1407,71 +1451,6 @@
         });
       }
 
-      // ─── BOOK ─────────────────────────────────────────────────────────────
-      function createBook(childIds) {
-        const pos = centerPos();
-        const id = `bk${S.nextId++}`;
-        S.books.push({ id, x: pos.x - 85, y: pos.y - 50, title: 'BOOK', children: childIds, expanded: false });
-        renderBook(id, true);
-        syncIdeaVisibility();
-        focus('book', id);
-        save(); updateStat();
-      }
-
-      function renderBook(id, animate) {
-        const bk = S.books.find(b => b.id === id);
-        if (!bk) return;
-        let el = document.getElementById(`book-${id}`);
-        const isNew = !el;
-        if (isNew) {
-          el = document.createElement('div');
-          el.id = `book-${id}`;
-          el.className = 'book';
-          objLayer.appendChild(el);
-          makeDraggable(el, () => bk, o => { });
-          el.addEventListener('click', e => {
-            e.stopPropagation();
-            if (S.mode === 'select') focus('book', id);
-          });
-          el.addEventListener('dblclick', e => {
-            e.stopPropagation();
-            toggleBook(id);
-          });
-        }
-        el.style.left = bk.x + 'px'; el.style.top = bk.y + 'px';
-        const numPart = id.replace('bk', '');
-        const bkhex = COLOR_HEX[bk.color || 'purple'];
-        // First child's text becomes the book title
-        const firstChild = bk.children[0] ? S.ideas[bk.children[0]] : null;
-        const titleText = firstChild?.text
-          ? esc(firstChild.text.split('\n')[0].slice(0, 40)) + (firstChild.text.length > 40 ? '…' : '')
-          : 'BOOK';
-        // Collapsed: show rest as short text previews; Expanded: 2nd onward (1st = title)
-        const restChildren = bk.children.slice(1);
-        const restTags = restChildren.map(c => {
-          const o = S.ideas[c];
-          const preview = o?.text ? esc(o.text.split('\n')[0].slice(0, 14)) + (o.text.length > 14 ? '…' : '') : '…';
-          return `<span class="btag" style="background:${bkhex}1a;border-color:${bkhex}44;color:${bkhex}">${preview}</span>`;
-        }).join('');
-        const expandedChildren = bk.expanded ? restChildren : [];
-        const exp = bk.expanded ? `<div class="book-expanded">${expandedChildren.map(c => {
-          const o = S.ideas[c];
-          return `<div class="book-inner">${esc(o ? o.text : '')}</div>`;
-        }).join('')
-          }</div>` : '';
-        el.innerHTML = `<div class="book-stack"><div class="book-card">
-      <div class="book-hdr">
-        <span class="book-icon" style="color:${bkhex}">${bk.expanded ? '▼' : '▶'}</span>
-        <span class="book-ttl" style="font-size:11px;color:var(--text);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${titleText}</span>
-      </div>
-      <div class="book-tags">${restTags}</div>
-      ${exp}
-    </div></div>`;
-        const isFocusedBk = S.focused?.kind === 'book' && S.focused.id === id;
-        applyBookBorder(el, bk, isFocusedBk);
-        if (animate) { el.classList.add('spring-in'); setTimeout(() => el.classList.remove('spring-in'), 400); }
-      }
-
       // ─── CONNECTORS (screen-space SVG) ───────────────────────────────────
       // エンドポイント（接続点）の種類・IDから人間が読みやすいラベル文字列を作り、トーストなどで使う。
       function endpointLabel(ep) {
@@ -1589,78 +1568,6 @@
       // 2つのエンドポイントが同じ種類・IDかどうかを比較するユーティリティ。
       const epEqual = (a, b) => a && b && a.kind === b.kind && a.id === b.id;
 
-      // ─── MANAGED LINK BLOCK ───────────────────────────────────────────────
-      // The bottom of each note holds an auto-managed link section:
-      //   <body>\n\n---\n\n[[Title A]]\n[[Title B]]
-      // It is kept in perfect sync with idea-to-idea connectors.
-      const MLINK_RE = /^\s*\[\[([^\]\n]+)\]\]\s*$/;
-      function splitNote(text) {
-        const lines = String(text || '').split('\n');
-        let sep = -1;
-        for (let i = lines.length - 1; i >= 0; i--) {
-          if (/^\s*---\s*$/.test(lines[i])) {
-            const tail = lines.slice(i + 1);
-            if (tail.every(l => l.trim() === '' || MLINK_RE.test(l))) sep = i;
-            break;
-          }
-        }
-        if (sep < 0) return { body: String(text || '').replace(/\s+$/, ''), links: [] };
-        const body = lines.slice(0, sep).join('\n').replace(/\s+$/, '');
-        const links = [];
-        lines.slice(sep + 1).forEach(l => {
-          const m = l.match(MLINK_RE);
-          if (m) { const v = m[1].trim(); if (v && !links.some(x => x.toLowerCase() === v.toLowerCase())) links.push(v); }
-        });
-        return { body, links };
-      }
-      function buildNote(body, titles) {
-        body = String(body || '').replace(/\s+$/, '');
-        const uniq = [];
-        (titles || []).forEach(t => {
-          t = (t || '').trim();
-          if (t && !uniq.some(x => x.toLowerCase() === t.toLowerCase())) uniq.push(t);
-        });
-        if (!uniq.length) return body;
-        return body + '\n\n---\n\n' + uniq.map(t => `[[${t}]]`).join('\n');
-      }
-      // Titles this idea should list, derived purely from connectors:
-      //  from-side of any connector → list the target;
-      //  to-side of a 'line' (bidirectional) connector → list the source.
-      function connectorLinkTitlesFor(ideaId) {
-        const titles = [];
-        S.connectors.forEach(c => {
-          if (c.from.kind !== 'idea' || c.to.kind !== 'idea') return;
-          let other = null;
-          if (c.from.id === ideaId) other = c.to.id;
-          else if (c.to.id === ideaId && c.type === 'line') other = c.from.id;
-          if (other != null && S.ideas[other]) {
-            const t = noteTitle(S.ideas[other]);
-            if (t && !titles.some(x => x.toLowerCase() === t.toLowerCase())) titles.push(t);
-          }
-        });
-        return titles;
-      }
-      function rebuildNoteLinkBlock(ideaId) {
-        const idea = S.ideas[ideaId];
-        if (!idea) return;
-        const { body } = splitNote(idea.text);
-        const next = buildNote(body, connectorLinkTitlesFor(ideaId));
-        if (next === idea.text) return;
-        idea.text = next;
-        if (S.activeNote === ideaId) {
-          const ta = document.getElementById('note-ta');
-          if (ta) ta.value = idea.text;
-          if (S.view === 'note') {
-            document.getElementById('note-name').textContent = noteTitle(idea);
-            if (S.notePreview) renderNotePreview();
-            renderNoteLinks();
-          }
-        }
-      }
-      // 全アイデアのリンクブロックをコネクター状態から一括再構築する（一斉同期に使う）。
-      function rebuildAllNoteLinkBlocks() {
-        Object.keys(S.ideas).forEach(k => rebuildNoteLinkBlock(S.ideas[k].id));
-      }
 
       // 2つのエンドポイントをコネクターで接続する（または既存なら削除する）。接続後にノートのリンクブロックも更新する。
       function connectEndpoints(fromEp, toEp, type) {
@@ -1669,16 +1576,12 @@
           (type === 'line' && epEqual(c.from, toEp) && epEqual(c.to, fromEp)));
         if (dup) {
           S.connectors = S.connectors.filter(c => c.id !== dup.id);
-          if (dup.from.kind === 'idea') rebuildNoteLinkBlock(dup.from.id);
-          if (dup.to.kind === 'idea') rebuildNoteLinkBlock(dup.to.id);
           redrawConnectors(); save();
           toast(`${endpointLabel(fromEp)} — ${endpointLabel(toEp)} の接続を削除`);
           return;
         }
         const id = `c${S.nextId++}`;
         S.connectors.push({ id, from: fromEp, to: toEp, type });
-        if (fromEp.kind === 'idea') rebuildNoteLinkBlock(fromEp.id);
-        if (toEp.kind === 'idea') rebuildNoteLinkBlock(toEp.id);
         redrawConnectors();
         save();
         toast(`${endpointLabel(fromEp)} ${type === 'arrow' ? '→' : '—'} ${endpointLabel(toEp)} を接続`);
@@ -1793,111 +1696,6 @@
         const ae = document.activeElement;
         const inInput = ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA');
 
-        // ─ Ctrl+E: 絵文字ピッカー（Note ビューのみ、ep-search 外） ─
-        if (e.ctrlKey && !e.altKey && !e.shiftKey && e.key === 'e' && S.view === 'note' && ae?.id !== 'ep-search') {
-          e.preventDefault();
-          if (EP.open) epClose(); else epOpen();
-          return;
-        }
-        // 絵文字ピッカーが開いているときは Esc のみ通す
-        if (EP.open && e.key !== 'Escape') return;
-        if (EP.open && e.key === 'Escape') { epClose(); return; }
-
-        // ─ グローバル: Ctrl+←→ でビューを順送り・逆送り ─
-        if (e.ctrlKey && !e.shiftKey && !e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && !inInput) {
-          e.preventDefault();
-          const views = ['board', 'note', 'graph'];
-          const cur = views.indexOf(S.view);
-          const next = e.key === 'ArrowRight' ? (cur + 1) % 3 : (cur + 2) % 3;
-          switchView(views[next]);
-          return;
-        }
-        // ─ グローバル: Ctrl+1/2/3 でビュー直接指定 ─
-        if (e.ctrlKey && !e.shiftKey && !e.altKey && (e.key === '1' || e.key === '2' || e.key === '3') && !inInput) {
-          e.preventDefault();
-          if (e.key === '1') switchView('board');
-          else if (e.key === '2') switchView('note');
-          else if (e.key === '3') switchView('graph');
-          return;
-        }
-
-        // Note view / Graph view: Escape で入力解除 → ボードへ
-        if (S.view !== 'board') {
-          if (e.key === 'Escape') {
-            if (ae && (ae.id === 'note-ta' || ae.id === 'note-search')) { ae.blur(); return; }
-            switchView('board');
-            return;
-          }
-          // Note view専用ショートカット
-          if (S.view === 'note') {
-            const inTA = ae && ae.id === 'note-ta';
-            const inSearch = ae && ae.id === 'note-search';
-            const inNoteInput = inTA || inSearch;
-            // Ctrl+P: プレビュー切替（どこからでも）
-            if (e.ctrlKey && e.key === 'p') { e.preventDefault(); toggleNotePreview(); return; }
-            // Ctrl+↑↓: 編集モードのままメモを切り替え（テキストエリア内でも有効）
-            if (inTA && e.ctrlKey && !e.altKey && !e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
-              e.preventDefault();
-              const ta = document.getElementById('note-ta');
-              if (S.activeNote != null && S.ideas[S.activeNote]) { S.ideas[S.activeNote].text = ta.value; save(); }
-              const filter = document.getElementById('note-search').value.trim().toLowerCase();
-              const sorted = getSortedNoteItems(filter);
-              if (!sorted.length) return;
-              const cur = sorted.findIndex(o => o.id === S.activeNote);
-              const nxt = sorted[((cur < 0 ? 0 : cur) + (e.key === 'ArrowDown' ? 1 : -1) + sorted.length) % sorted.length];
-              selectNote(nxt.id); enterNoteEdit();
-              return;
-            }
-            // Layout-independent bracket detection ([/{ = left, ]/} = right)
-            const brL = e.key === '[' || e.key === '{';
-            const brR = e.key === ']' || e.key === '}';
-            // Shift+↑↓ or Shift+[]: 手動並び替え（入力外）
-            const shiftMove = !inNoteInput && e.shiftKey &&
-              (brL || brR || e.key === 'ArrowUp' || e.key === 'ArrowDown');
-            if (shiftMove) {
-              e.preventDefault();
-              if (S.noteSort !== 'manual') {
-                S.noteOrder = getSortedNoteItems('').map(o => o.id);
-                S.noteSort = 'manual';
-              }
-              const isUp = brL || e.key === 'ArrowUp';
-              const cur = S.noteOrder.indexOf(S.activeNote);
-              if (cur >= 0) {
-                const nxt = isUp ? cur - 1 : cur + 1;
-                if (nxt >= 0 && nxt < S.noteOrder.length) {
-                  [S.noteOrder[cur], S.noteOrder[nxt]] = [S.noteOrder[nxt], S.noteOrder[cur]];
-                  save(); renderNoteList('');
-                }
-              }
-              return;
-            }
-            // ↑↓ or []: メモ移動（Shiftなし・テキストエリア外のみ）
-            let step = 0;
-            if (!inTA && !e.shiftKey && (e.key === 'ArrowUp' || (!inNoteInput && brL))) step = -1;
-            if (!inTA && !e.shiftKey && (e.key === 'ArrowDown' || (!inNoteInput && brR))) step = 1;
-            if (step !== 0 && !e.ctrlKey && !e.altKey) {
-              e.preventDefault();
-              const filter = document.getElementById('note-search').value.trim().toLowerCase();
-              const sorted = getSortedNoteItems(filter);
-              if (!sorted.length) return;
-              const cur = sorted.findIndex(o => o.id === S.activeNote);
-              const next = sorted[((cur < 0 ? 0 : cur) + step + sorted.length) % sorted.length];
-              selectNote(next.id);
-              return;
-            }
-            // 入力外のキー操作
-            if (!inNoteInput) {
-              if (e.key === 'n') { e.preventDefault(); document.getElementById('note-new').click(); return; }
-              if ((e.key === 'Enter' && !e.shiftKey) || e.key === 'e') { e.preventDefault(); enterNoteEdit(); return; }
-              if (e.key === 'p') { e.preventDefault(); toggleNotePreview(); return; }
-              // Delete/Backspace: アクティブなメモを削除
-              if ((e.key === 'Delete' || e.key === 'Backspace') && S.activeNote != null) {
-                e.preventDefault(); deleteActiveNote(); return;
-              }
-            }
-          }
-          return;
-        }
 
         if (e.key === 'Tab') {
           e.preventDefault();
@@ -2037,11 +1835,6 @@
             unbookOrDetach();
             break;
           case 'p': e.preventDefault(); openPalette(); break;
-          case 'n':
-            e.preventDefault();
-            if (S.focused?.kind === 'idea') openNote(S.focused.id);
-            else openNote(null);
-            break;
           case 'l':
             e.preventDefault();
             if (S.lensMode) exitLensMode(); else enterLensMode();
@@ -2144,7 +1937,6 @@
           const el = getEl('book', id);
           if (el) { el.classList.add('fade-out'); setTimeout(() => el.remove(), 200); }
           S.books = S.books.filter(b => b.id !== id);
-          syncIdeaVisibility();
           S.focused = null; updateStat(); updateCmd(); save();
           toast('ブックを解除しました — アイデアをボードに戻しました');
         } else if (kind === 'idea') {
@@ -2157,7 +1949,7 @@
               removed = true;
             }
           });
-          if (removed) { syncIdeaVisibility(); save(); toast(`#${id} をブックから除外しました`); }
+          if (removed) { save(); toast(`#${id} をブックから除外しました`); }
           else toast('このアイデアはブックに所属していません');
         }
       }
@@ -2276,291 +2068,6 @@
         }
       }
 
-      // ─── GRAPH SYSTEM ─────────────────────────────────────────────────────
-      const graphView = document.getElementById('graph-view');
-      const graphSvg = document.getElementById('graph-svg');
-      const graphCam = document.getElementById('graph-cam');
-      const graphEdgesG = document.getElementById('graph-edges-g');
-      const graphNodesG = document.getElementById('graph-nodes-g');
-      let graphSimNodes = [];
-      let graphSimEdges = [];
-      let gDragging = null;
-      let gPanning = false;
-      let gPanStart = null;
-      let gHoverKey = null;
-
-      // グラフビュー用のSVGアローマーカーをカラーごとに<defs>内に生成する。
-      function buildGraphArrows() {
-        const defs = document.getElementById('graph-defs');
-        defs.innerHTML = '';
-        Object.entries(COLOR_HEX).forEach(([name, hex]) => {
-          const mk = document.createElementNS('http://www.w3.org/2000/svg', 'marker');
-          mk.setAttribute('id', `garr-${name}`);
-          mk.setAttribute('markerUnits', 'strokeWidth');
-          mk.setAttribute('markerWidth', '6'); mk.setAttribute('markerHeight', '4');
-          mk.setAttribute('refX', '6'); mk.setAttribute('refY', '2'); mk.setAttribute('orient', 'auto');
-          const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-          p.setAttribute('d', 'M0,0 L6,2 L0,4 z'); p.setAttribute('fill', hex);
-          mk.appendChild(p); defs.appendChild(mk);
-        });
-      }
-
-      // 全アイデア・ブック・コネクター・ウィキリンクをグラフシミュレーション用のノードと辺（edges）に変換する。
-      function buildGraphData() {
-        // Initialize graphPos from board positions if not set
-        Object.values(S.ideas).forEach(o => {
-          if (!S.graphPos[`idea:${o.id}`]) S.graphPos[`idea:${o.id}`] = { x: o.x || 300, y: o.y || 300 };
-        });
-        S.books.forEach(b => {
-          if (!S.graphPos[`book:${b.id}`]) S.graphPos[`book:${b.id}`] = { x: b.x || 300, y: b.y || 300 };
-        });
-        // Build node array
-        graphSimNodes = [];
-        Object.values(S.ideas).forEach(o => {
-          const p = S.graphPos[`idea:${o.id}`];
-          graphSimNodes.push({ id: o.id, kind: 'idea', x: p.x, y: p.y, vx: 0, vy: 0, fx: 0, fy: 0, pinned: false });
-        });
-        S.books.forEach(b => {
-          const p = S.graphPos[`book:${b.id}`];
-          graphSimNodes.push({ id: b.id, kind: 'book', x: p.x, y: p.y, vx: 0, vy: 0, fx: 0, fy: 0, pinned: false });
-        });
-        // Build edge array (connectors + wikilinks)
-        const nodeMap = {};
-        graphSimNodes.forEach(n => nodeMap[`${n.kind}:${n.id}`] = n);
-        graphSimEdges = [];
-        S.connectors.forEach(c => {
-          if (nodeMap[`${c.from.kind}:${c.from.id}`] && nodeMap[`${c.to.kind}:${c.to.id}`])
-            graphSimEdges.push({ from: c.from, to: c.to, type: 'conn', ctype: c.type || 'line' });
-        });
-        Object.values(S.ideas).forEach(o => {
-          extractWikilinks(o.text).forEach(title => {
-            const t = findIdeaByTitle(title);
-            if (!t || t.id === o.id) return;
-            graphSimEdges.push({ from: { kind: 'idea', id: o.id }, to: { kind: 'idea', id: t.id }, type: 'wikilink' });
-          });
-        });
-      }
-
-      // シミュレーションノードの現在座標をS.graphPosに書き戻してlocalStorageへの保存対象にする。
-      function saveGraphPos() {
-        graphSimNodes.forEach(n => { S.graphPos[`${n.kind}:${n.id}`] = { x: n.x, y: n.y }; });
-      }
-
-      // グラフビューの辺に使うカラー名を、辺の発点オブジェクトのカラー設定から取得する。
-      function graphEdgeColor(e) {
-        if (e.from.kind === 'idea') return S.ideas[e.from.id]?.color || 'purple';
-        if (e.from.kind === 'book') return S.books.find(b => b.id === e.from.id)?.color || 'purple';
-        return 'purple';
-      }
-
-      function drawGraph() {
-        const nodeMap = {};
-        graphSimNodes.forEach(n => nodeMap[`${n.kind}:${n.id}`] = n);
-        // Edges
-        graphEdgesG.innerHTML = '';
-        graphSimEdges.forEach(e => {
-          const A = nodeMap[`${e.from.kind}:${e.from.id}`];
-          const B = nodeMap[`${e.to.kind}:${e.to.id}`];
-          if (!A || !B) return;
-          const dx = B.x - A.x, dy = B.y - A.y, len = Math.max(Math.hypot(dx, dy), 1), r = 24;
-          const sx = A.x + (dx / len) * r, sy = A.y + (dy / len) * r;
-          const ex = B.x - (dx / len) * r, ey = B.y - (dy / len) * r;
-          const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-          path.setAttribute('d', `M${sx},${sy} L${ex},${ey}`);
-          path.setAttribute('fill', 'none');
-          if (e.type === 'wikilink') {
-            path.setAttribute('stroke', COLOR_HEX.cyan);
-            path.setAttribute('stroke-width', '1'); path.setAttribute('stroke-dasharray', '3 5');
-            path.setAttribute('opacity', '.35');
-          } else {
-            const col = graphEdgeColor(e), hex = COLOR_HEX[col];
-            path.setAttribute('stroke', hex); path.setAttribute('stroke-width', '1.5'); path.setAttribute('opacity', '.75');
-            if (e.ctype === 'arrow') path.setAttribute('marker-end', `url(#garr-${col})`);
-            else if (e.ctype === 'line') path.setAttribute('stroke-dasharray', '5 3');
-            else if (e.ctype === 'link') { path.setAttribute('stroke-dasharray', '1 5'); path.setAttribute('opacity', '.4'); }
-          }
-          const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-          g.classList.add('gedge'); g.appendChild(path);
-          graphEdgesG.appendChild(g);
-        });
-        // Nodes
-        graphNodesG.innerHTML = '';
-        graphSimNodes.forEach(n => {
-          const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-          g.classList.add('gnode');
-          g.setAttribute('data-kind', n.kind); g.setAttribute('data-id', String(n.id));
-          g.setAttribute('transform', `translate(${Math.round(n.x)},${Math.round(n.y)})`);
-          if (n.kind === 'idea') {
-            const o = S.ideas[n.id];
-            const col = COLOR_HEX[o?.color || 'purple'];
-            const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-            c.setAttribute('r', '22'); c.setAttribute('fill', col); c.setAttribute('fill-opacity', '0.82');
-            c.setAttribute('stroke', col); c.setAttribute('stroke-width', '2');
-            g.appendChild(c);
-            const wls = extractWikilinks(o?.text).length;
-            if (wls > 0) {
-              const b = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-              b.setAttribute('text-anchor', 'middle'); b.setAttribute('y', '4');
-              b.setAttribute('font-size', '9'); b.setAttribute('fill', '#fff'); b.setAttribute('opacity', '.9');
-              b.textContent = wls; g.appendChild(b);
-            }
-            const lbl = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-            lbl.setAttribute('text-anchor', 'middle'); lbl.setAttribute('y', '38'); lbl.setAttribute('font-size', '10');
-            const tt = noteTitle(o || {});
-            lbl.textContent = tt.slice(0, 20) + (tt.length > 20 ? '…' : ''); g.appendChild(lbl);
-          } else {
-            const bk = S.books.find(b => b.id === n.id);
-            const col = COLOR_HEX[bk?.color || 'purple'];
-            const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-            rect.setAttribute('x', '-24'); rect.setAttribute('y', '-14');
-            rect.setAttribute('width', '48'); rect.setAttribute('height', '28'); rect.setAttribute('rx', '6');
-            rect.setAttribute('fill', col); rect.setAttribute('fill-opacity', '0.75');
-            rect.setAttribute('stroke', col); rect.setAttribute('stroke-width', '2');
-            g.appendChild(rect);
-            const lbl = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-            lbl.setAttribute('text-anchor', 'middle'); lbl.setAttribute('y', '32'); lbl.setAttribute('font-size', '10');
-            const tt = bk?.children[0] ? noteTitle(S.ideas[bk.children[0]] || {}) : 'BOOK';
-            lbl.textContent = tt.slice(0, 16) + (tt.length > 16 ? '…' : ''); g.appendChild(lbl);
-          }
-          // Events
-          g.addEventListener('mousedown', e => {
-            e.stopPropagation();
-            gDragging = { n, sx: e.clientX, sy: e.clientY, ox: n.x, oy: n.y }; n.pinned = true;
-          });
-          g.addEventListener('click', e => {
-            e.stopPropagation();
-            if (n.kind === 'idea') openNote(n.id);
-            else if (n.kind === 'book') { switchView('note'); selectNote(S.books.find(b => b.id === n.id)?.children[0]); }
-          });
-          g.addEventListener('dblclick', e => {
-            e.stopPropagation();
-            if (n.kind === 'idea') navigateToNoteOnBoard(n.id);
-            else { switchView('board'); focus('book', n.id); }
-          });
-          g.addEventListener('mouseenter', () => { gHoverKey = `${n.kind}:${n.id}`; applyGraphDim(); });
-          g.addEventListener('mouseleave', () => { gHoverKey = null; applyGraphDim(); });
-          graphNodesG.appendChild(g);
-        });
-        applyGraphDim();
-        updateGraphCam();
-      }
-
-      // ホバー中ノードとその近傍以外を半透明にして、グラフの注目ノードを視覚的に強調する。
-      function applyGraphDim() {
-        if (!gHoverKey) {
-          graphNodesG.querySelectorAll('.gnode').forEach(el => el.classList.remove('dim'));
-          graphEdgesG.querySelectorAll('.gedge').forEach(el => el.classList.remove('dim'));
-          return;
-        }
-        const [hk, hid] = gHoverKey.split(':');
-        const ep = { kind: hk, id: isNaN(+hid) ? hid : +hid };
-        const vis = getNeighborKeys(ep, 2); vis.add(gHoverKey);
-        // Also add wikilink neighbors
-        if (hk === 'idea') {
-          extractWikilinks(S.ideas[ep.id]?.text || '').forEach(t => {
-            const f = findIdeaByTitle(t); if (f) vis.add(`idea:${f.id}`);
-          });
-          Object.values(S.ideas).forEach(o => {
-            if (extractWikilinks(o.text).some(t => { const f = findIdeaByTitle(t); return f && f.id === ep.id; }))
-              vis.add(`idea:${o.id}`);
-          });
-        }
-        graphNodesG.querySelectorAll('.gnode').forEach(el => {
-          el.classList.toggle('dim', !vis.has(`${el.dataset.kind}:${el.dataset.id}`));
-        });
-        graphEdgesG.querySelectorAll('.gedge').forEach(el => el.classList.add('dim'));
-      }
-
-      // グラフビューのSVGカメラグループにパン・ズーム変換を適用する。
-      function updateGraphCam() {
-        graphCam.setAttribute('transform', `translate(${S.gPan.x},${S.gPan.y}) scale(${S.gZoom})`);
-      }
-
-      function graphFitAll() {
-        if (!graphSimNodes.length) return;
-        const xs = graphSimNodes.map(n => n.x), ys = graphSimNodes.map(n => n.y);
-        const pad = 80;
-        const minX = Math.min(...xs) - pad, maxX = Math.max(...xs) + pad;
-        const minY = Math.min(...ys) - pad, maxY = Math.max(...ys) + pad;
-        const r = graphSvg.getBoundingClientRect();
-        const nz = Math.min(r.width / (maxX - minX), r.height / (maxY - minY), 2);
-        S.gZoom = nz;
-        S.gPan.x = r.width / 2 - (minX + (maxX - minX) / 2) * nz;
-        S.gPan.y = r.height / 2 - (minY + (maxY - minY) / 2) * nz;
-        updateGraphCam();
-      }
-
-      // グラフの辺リストから力学シミュレーション用のバネ配列（ノードペア形式）を構築して返す。
-      function getGraphSprings() {
-        const nodeMap = {};
-        graphSimNodes.forEach(n => nodeMap[`${n.kind}:${n.id}`] = n);
-        return graphSimEdges
-          .map(e => [nodeMap[`${e.from.kind}:${e.from.id}`], nodeMap[`${e.to.kind}:${e.to.id}`]])
-          .filter(([a, b]) => a && b);
-      }
-
-      // グラフビューに入る際に、アロー・データ・描画を初期化して力学シミュレーションのループを開始する。
-      function enterGraphView() {
-        buildGraphArrows();
-        buildGraphData();
-        drawGraph();
-        requestAnimationFrame(graphFitAll);
-        // Live simulation loop
-        const liveChk = document.getElementById('graph-live');
-        function simLoop() {
-          if (S.view !== 'graph') return;
-          if (liveChk.checked && !gDragging) {
-            runForceSim(graphSimNodes, getGraphSprings(), 2);
-            saveGraphPos();
-            drawGraph();
-          }
-          S.graphAnimId = requestAnimationFrame(simLoop);
-        }
-        S.graphAnimId = requestAnimationFrame(simLoop);
-      }
-
-      // グラフビューを離れる際にアニメーションループを停止しグラフ座標を保存する。
-      function exitGraphView() {
-        if (S.graphAnimId) { cancelAnimationFrame(S.graphAnimId); S.graphAnimId = null; }
-        saveGraphPos(); save();
-      }
-
-      // Graph pan/zoom/drag
-      graphSvg.addEventListener('mousedown', e => {
-        if (e.button === 1 || (e.button === 0 && e.altKey) || e.button === 0) {
-          gPanning = true; gPanStart = { x: e.clientX - S.gPan.x, y: e.clientY - S.gPan.y };
-          graphSvg.classList.add('gp');
-        }
-      });
-      document.addEventListener('mousemove', e => {
-        if (gDragging) {
-          const { n, sx, sy, ox, oy } = gDragging;
-          n.x = ox + (e.clientX - sx) / S.gZoom; n.y = oy + (e.clientY - sy) / S.gZoom;
-          saveGraphPos(); drawGraph();
-        } else if (gPanning && S.view === 'graph') {
-          S.gPan.x = e.clientX - gPanStart.x; S.gPan.y = e.clientY - gPanStart.y;
-          updateGraphCam();
-        }
-      });
-      document.addEventListener('mouseup', () => {
-        if (gDragging) { gDragging.n.pinned = false; gDragging = null; }
-        if (gPanning) { gPanning = false; graphSvg.classList.remove('gp'); }
-      });
-      graphSvg.addEventListener('wheel', e => {
-        e.preventDefault();
-        const dz = e.deltaY > 0 ? .9 : 1.1, nz = Math.max(.1, Math.min(4, S.gZoom * dz));
-        const r = graphSvg.getBoundingClientRect();
-        const mx = e.clientX - r.left, my = e.clientY - r.top;
-        S.gPan.x = mx - (mx - S.gPan.x) * (nz / S.gZoom); S.gPan.y = my - (my - S.gPan.y) * (nz / S.gZoom);
-        S.gZoom = nz; updateGraphCam();
-      }, { passive: false });
-
-      document.getElementById('graph-fit-btn').addEventListener('click', graphFitAll);
-      document.getElementById('graph-layout-btn').addEventListener('click', () => {
-        runForceSim(graphSimNodes, getGraphSprings(), 300);
-        saveGraphPos(); drawGraph(); graphFitAll();
-      });
-
       // ─── LENS MODE ────────────────────────────────────────────────────────
       // エンドポイント指定子から対応するアイデア・ゾーン・ブックのデータオブジェクトを返す。
       function getObjData(ep) {
@@ -2620,25 +2127,6 @@
         S.lensMode = false;
         document.querySelectorAll('.lens-dim').forEach(el => el.classList.remove('lens-dim'));
         updateCmd();
-      }
-
-      // ─── BRIDGE IDEA ─────────────────────────────────────────────────────
-      // 2つのオブジェクトの中間に新規アイデアを生成し、両端とラインで接続して「架け橋」コンセプトの入力を促す。
-      function createBridgeIdea(fromEp, toEp) {
-        const fromObj = getObjData(fromEp);
-        const toObj = getObjData(toEp);
-        if (!fromObj || !toObj) return;
-        const mx = (fromObj.x + toObj.x) / 2 + (Math.random() - .5) * 40;
-        const my = (fromObj.y + toObj.y) / 2 - 50;
-        const id = S.nextId++;
-        S.ideas[id] = { id, x: mx, y: my, text: '', color: 'purple' };
-        renderIdea(id, true);
-        const bridgeEp = { kind: 'idea', id };
-        S.connectors.push({ id: `c${S.nextId++}`, from: fromEp, to: bridgeEp, type: 'line' });
-        S.connectors.push({ id: `c${S.nextId++}`, from: bridgeEp, to: toEp, type: 'line' });
-        redrawConnectors(); save(); updateStat();
-        focus('idea', id); setMode('edit'); startEdit(id);
-        toast('架け橋アイデア — 2つをつなぐ概念を入力してください');
       }
 
       // ─── AUTO LAYOUT (force-directed) ────────────────────────────────────
@@ -2970,7 +2458,6 @@
         };
         if (kind === 'idea') {
           delete S.ideas[id];
-          S.noteOrder = S.noteOrder.filter(oid => oid !== id);
           rmConns();
           S.books.forEach(b => { b.children = b.children.filter(c => c !== id); });
           S.books.forEach(b => renderBook(b.id));
@@ -2980,39 +2467,12 @@
           rmConns(); redrawConnectors();
         } else if (kind === 'book') {
           S.books = S.books.filter(b => b.id !== id);
-          rmConns(); syncIdeaVisibility(); redrawConnectors();
+          rmConns(); redrawConnectors();
         }
         S.focused = null;
         save(); updateStat(); updateCmd();
       }
 
-      // NOTE ビューでアクティブなメモを削除し、隣のメモへ自動移動する。
-      function deleteActiveNote() {
-        const id = S.activeNote;
-        if (id == null || !S.ideas[id]) return;
-        const sorted = getSortedNoteItems(document.getElementById('note-search')?.value.trim().toLowerCase() || '');
-        const idx = sorted.findIndex(o => o.id === id);
-        // 削除後に選択する隣のメモを決める（次 → 前 → なし）
-        const nextId = sorted[idx + 1]?.id ?? sorted[idx - 1]?.id ?? null;
-        // コネクタをクリアし、リンクブロックも再構築する
-        S.connectors = S.connectors.filter(c =>
-          !(c.from.kind === 'idea' && c.from.id === id) &&
-          !(c.to.kind === 'idea' && c.to.id === id));
-        rebuildAllNoteLinkBlocks();
-        delete S.ideas[id];
-        S.noteOrder = S.noteOrder.filter(oid => oid !== id);
-        S.books.forEach(b => { b.children = b.children.filter(c => c !== id); });
-        S.activeNote = null;
-        save();
-        renderNoteList(document.getElementById('note-search')?.value.trim().toLowerCase() || '');
-        if (nextId != null && S.ideas[nextId]) selectNote(nextId);
-        else {
-          document.getElementById('note-name').textContent = 'メモを選択';
-          document.getElementById('note-color').style.background = '';
-          document.getElementById('note-ta').value = '';
-          document.getElementById('note-preview').innerHTML = '';
-        }
-      }
 
       // ─── CMD / STATUS ─────────────────────────────────────────────────────
       // 現在のモード・フォーカス状態に応じてコマンドバーのヘルプテキストとフォーカスバッジを更新する。
@@ -3066,8 +2526,7 @@
           try {
             localStorage.setItem('ideaboard_v4', JSON.stringify({
               ideas: S.ideas, connectors: S.connectors, zones: S.zones, books: S.books,
-              nextId: S.nextId, pan: S.pan, zoom: S.zoom, theme: S.theme, noteSort: S.noteSort, noteOrder: S.noteOrder,
-              graphPos: S.graphPos
+              nextId: S.nextId, pan: S.pan, zoom: S.zoom, theme: S.theme
             }));
           } catch (e) { }
         }, 400);
@@ -3082,8 +2541,7 @@
           Object.assign(S, {
             ideas: d.ideas || {}, connectors: d.connectors || [],
             zones: d.zones || [], books: d.books || [],
-            nextId: d.nextId || 1, pan: d.pan || S.pan, zoom: d.zoom || 1, theme: d.theme || 'dark', noteSort: d.noteSort || 'az', noteOrder: d.noteOrder || [],
-            graphPos: d.graphPos || {}
+            nextId: d.nextId || 1, pan: d.pan || S.pan, zoom: d.zoom || 1, theme: d.theme || 'dark'
           });
           // normalize idea ids to numbers
           const fixed = {};
@@ -3104,7 +2562,6 @@
         S.zones.forEach(z => renderZone(z.id));
         Object.values(S.ideas).forEach(o => renderIdea(o.id));
         S.books.forEach(b => renderBook(b.id));
-        syncIdeaVisibility();
         buildArrowMarkers();
         redrawConnectors();
         applyXform(); updateStat();
@@ -3112,710 +2569,12 @@
         document.getElementById('theme-btn').textContent = S.theme === 'dark' ? '◑' : '◐';
       }
 
-      // ─── NOTE SYSTEM ──────────────────────────────────────────────────────
-      // アイデアテキストの最初の非空行をタイトルとして抽出し、マークダウン見出し記号（#）を除去して返す。
-      function noteTitle(idea) {
-        const t = (idea?.text || '').trim();
-        if (!t) return '(無題)';
-        let first = t.split('\n').find(l => l.trim()) || '';
-        first = first.replace(/^#{1,6}\s*/, '').trim();
-        return (first.slice(0, 80) || '(無題)');
-      }
-      function findIdeaByTitle(title) {
-        const n = s => (s || '').trim().toLowerCase();
-        const tn = n(title);
-        return Object.values(S.ideas).find(o => n(noteTitle(o)) === tn) || null;
-      }
-      // テキスト内の全 [[...]] パターンを抽出し、重複を除いたタイトル文字列の配列を返す。
-      function extractWikilinks(text) {
-        const out = [], re = /\[\[([^\]\n]+)\]\]/g; let m;
-        while ((m = re.exec(text || ''))) {
-          const t = m[1].trim();
-          if (t && !out.includes(t)) out.push(t);
-        }
-        return out;
-      }
-
-      // Minimal dependency-free markdown renderer (escape-first)
-      // 外部ライブラリ不要の独自マークダウンレンダラー。
-      // 対応記法: 見出し・コードブロック・表・リスト・タスク・引用・太字/斜体/打ち消し/ハイライト・ウィキリンク・URL
-      function mdRender(src) {
-        src = String(src || '');
-        const blocks = [];
-        // fenced code blocks を先に抜き出してプレースホルダーに置換
-        src = src.replace(/```([\s\S]*?)```/g, (_, c) => {
-          blocks.push(`<pre><code>${esc(c.replace(/^\n/, ""))}</code></pre>`);
-          return `\x00B${blocks.length - 1}\x00`;
-        });
-        const lines = src.split('\n');
-        let html = '';
-        const listStack = [];
-        const closeListsTo = (targetIndent) => {
-          while (listStack.length && listStack[listStack.length - 1].indent > targetIndent)
-            html += `</${listStack.pop().type}>`;
-        };
-        const closeLists = () => { while (listStack.length) html += `</${listStack.pop().type}>`; };
-
-        // インライン要素の変換（esc() 後に適用）
-        const inline = s => {
-          s = esc(s);
-          // ウィキリンク
-          s = s.replace(/\[\[([^\]]+)\]\]/g, (_, t) => {
-            t = t.trim();
-            const found = findIdeaByTitle(t);
-            return `<span class="wikilink${found ? "" : " missing"}" data-wl="${esc(t)}">${esc(t)}</span>`;
-          });
-          s = s.replace(/`([^`]+)`/g, '<code>$1</code>');           // インラインコード
-          s = s.replace(/~~([^~]+)~~/g, '<del>$1</del>');            // 打ち消し
-          s = s.replace(/==([^=\n]+)==/g, '<mark>$1</mark>');        // ハイライト
-          s = s.replace(/\*\*\*([^*]+)\*\*\*/g, '<strong><em>$1</em></strong>'); // 太字+斜体
-          s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');  // 太字
-          s = s.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>'); // 斜体
-          s = s.replace(/(^|[^_])_([^_\n]+)_/g, '$1<em>$2</em>');   // 斜体 (_)
-          s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
-            '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>'); // 名前付きリンク
-          s = s.replace(/(^|[\s(])(https?:\/\/[^\s<)"]+)/g,
-            '$1<a href="$2" target="_blank" rel="noopener noreferrer">$2</a>'); // 裸URL
-          return s;
-        };
-
-        // テーブル行バッファ
-        let tableLines = [];
-        const flushTable = () => {
-          if (!tableLines.length) return;
-          const rows = tableLines.map(l =>
-            l.replace(/^\||\|$/g, '').split('|').map(c => c.trim())
-          );
-          const hasSep = rows.length >= 2 && rows[1].every(c => /^:?-+:?$/.test(c));
-          let t = '<table>';
-          if (hasSep) {
-            const aligns = rows[1].map(c => {
-              if (c.startsWith(':') && c.endsWith(':')) return 'center';
-              if (c.endsWith(':')) return 'right';
-              return 'left';
-            });
-            t += '<thead><tr>' + rows[0].map((c, i) =>
-              `<th style="text-align:${aligns[i]}">${inline(c)}</th>`).join('') + '</tr></thead><tbody>';
-            for (let i = 2; i < rows.length; i++)
-              t += '<tr>' + rows[i].map((c, j) =>
-                `<td style="text-align:${aligns[j] || 'left'}">${inline(c)}</td>`).join('') + '</tr>';
-            t += '</tbody>';
-          } else {
-            t += '<tbody>' + rows.map(row =>
-              '<tr>' + row.map(c => `<td>${inline(c)}</td>`).join('') + '</tr>'
-            ).join('') + '</tbody>';
-          }
-          html += t + '</table>';
-          tableLines = [];
-        };
-
-        for (let raw of lines) {
-          const line = raw.replace(/\r$/, '');
-
-          // テーブル行（|で始まる）
-          if (/^\|/.test(line)) { closeLists(); tableLines.push(line); continue; }
-          flushTable();
-
-          const ph = line.match(/^\x00B(\d+)\x00$/);
-          if (ph) { closeLists(); html += blocks[+ph[1]]; continue; }
-          if (/^\s*$/.test(line)) { closeLists(); continue; }
-          let m;
-          if ((m = line.match(/^(#{1,6})\s+(.*)$/))) {
-            closeLists(); html += `<h${m[1].length}>${inline(m[2])}</h${m[1].length}>`; continue;
-          }
-          if (/^\s*([-*_])\s*\1\s*\1[\s\1]*$/.test(line)) { closeLists(); html += '<hr>'; continue; }
-          if ((m = line.match(/^(>\s?)(.*)/))) { closeLists(); html += `<blockquote>${inline(m[2])}</blockquote>`; continue; }
-          // タスクリスト
-          if ((m = line.match(/^(\s*)([-*+])\s+\[([ xX])\]\s+(.*)/))) {
-            const indent = m[1].length, done = m[3].toLowerCase() === 'x';
-            closeListsTo(indent - 1);
-            if (!listStack.length || listStack[listStack.length - 1].indent < indent)
-              { html += '<ul>'; listStack.push({ type: 'ul', indent }); }
-            html += `<li class="task${done ? ' done' : ''}"><span class="cb">${done ? '☑' : '☐'}</span> ${inline(m[4])}</li>`; continue;
-          }
-          // 箇条書きリスト
-          if ((m = line.match(/^(\s*)[-*+]\s+(.*)/))) {
-            const indent = m[1].length;
-            closeListsTo(indent - 1);
-            if (!listStack.length || listStack[listStack.length - 1].indent < indent)
-              { html += '<ul>'; listStack.push({ type: 'ul', indent }); }
-            html += `<li>${inline(m[2])}</li>`; continue;
-          }
-          // 番号付きリスト
-          if ((m = line.match(/^(\s*)\d+\.\s+(.*)/))) {
-            const indent = m[1].length;
-            closeListsTo(indent - 1);
-            if (!listStack.length || listStack[listStack.length - 1].indent < indent)
-              { html += '<ol>'; listStack.push({ type: 'ol', indent }); }
-            html += `<li>${inline(m[2])}</li>`; continue;
-          }
-          // 段落（行末スペース2つ → <br>）
-          const trail = line.endsWith('  ');
-          closeLists();
-          html += `<p>${inline(trail ? line.slice(0, -2) : line)}${trail ? '<br>' : ''}</p>`;
-        }
-        closeLists(); flushTable();
-        return html;
-      }
-      // Links for a given idea id
-      // 他のアイデアのテキストに自分へのウィキリンクを持つアイデアIDの一覧（バックリンク）を返す。
-      function noteBacklinks(id) {
-        const title = noteTitle(S.ideas[id]);
-        const n = s => (s || '').trim().toLowerCase();
-        const tn = n(title);
-        const out = [];
-        Object.values(S.ideas).forEach(o => {
-          if (o.id === id) return;
-          if (extractWikilinks(o.text).some(w => n(w) === tn)) out.push(o.id);
-        });
-        return out;
-      }
-      // ボードのコネクターで直接つながっているアイデアIDの集合を返す（双方向・種別問わず）。
-      function noteConnLinks(id) {
-        const ids = new Set();
-        S.connectors.forEach(c => {
-          if (c.from.kind === 'idea' && c.to.kind === 'idea') {
-            if (c.from.id === id) ids.add(c.to.id);
-            else if (c.to.id === id) ids.add(c.from.id);
-          }
-        });
-        return [...ids];
-      }
-      // このアイデアのテキスト内の [[...]] ウィキリンクを抽出し、タイトルと対象アイデアのペア配列を返す。
-      function noteOutlinks(id) {
-        return extractWikilinks(S.ideas[id]?.text).map(t => ({ title: t, target: findIdeaByTitle(t) }));
-      }
-      // 2つのアイデアIDの間に既存コネクターが（方向問わず）存在するかを確認するユーティリティ。
-      function hasConnectorBetween(a, b) {
-        return S.connectors.some(c =>
-          c.from.kind === 'idea' && c.to.kind === 'idea' &&
-          ((c.from.id === a && c.to.id === b) || (c.from.id === b && c.to.id === a)));
-      }
-      // ウィキリンクをボード上の 'link' 型コネクターとして実体化し、双方のリンクブロックを再構築する。
-      function materializeLink(fromId, toId) {
-        if (hasConnectorBetween(fromId, toId)) { toast('既に接続済みです'); return; }
-        S.connectors.push({ id: `c${S.nextId++}`, from: { kind: 'idea', id: fromId }, to: { kind: 'idea', id: toId }, type: 'link' });
-        rebuildNoteLinkBlock(fromId); rebuildNoteLinkBlock(toId);
-        redrawConnectors(); save();
-        toast('ボード上でリンクを接続しました');
-        if (S.view === 'note') renderNoteLinks();
-      }
-      // ウィキリンクのタイトルから新規アイデアを生成し、近傍アイデアの座標近くに配置してIDを返す。
-      function createNoteFromTitle(title, nearId) {
-        const base = nearId != null ? S.ideas[nearId] : null;
-        const x = base ? base.x + 60 : 400;
-        const y = base ? base.y + 120 : 300;
-        const id = S.nextId++;
-        S.ideas[id] = { id, x, y, text: `# ${title}\n\n`, color: base?.color || 'purple' };
-        if (!S.noteOrder.includes(id)) S.noteOrder.push(id);
-        renderIdea(id);
-        save(); updateStat();
-        return id;
-      }
-
-      // ─── VIEW SWITCH ──────────────────────────────────────────────────────
-      const noteView = document.getElementById('note-view');
-      // BOARD / NOTE / GRAPH の3つのビューを切り替える。退出・進入時の初期化も行う。
-      function switchView(v) {
-        const prev = S.view;
-        if (prev === 'graph' && v !== 'graph') exitGraphView();
-        S.view = v;
-        document.querySelectorAll('.vs-btn').forEach(b =>
-          b.classList.toggle('active', b.dataset.view === v));
-        noteView.classList.toggle('show', v === 'note');
-        graphView.classList.toggle('show', v === 'graph');
-        if (v === 'note') {
-          if (!S.activeNote || !S.ideas[S.activeNote]) {
-            const first = Object.values(S.ideas)[0];
-            S.activeNote = first ? first.id : null;
-          }
-          renderNoteList();
-          selectNote(S.activeNote);
-        } else if (v === 'graph') {
-          enterGraphView();
-        } else {
-          renderAll();
-        }
-      }
-
-      function openNote(id) {
-        if (id != null && S.ideas[id]) S.activeNote = id;
-        switchView('note');
-      }
-
-      // 検索フィルターと現在のソート設定（az/za/new/old/manual）に従ってアイデア一覧をソートして返す。
-      function getSortedNoteItems(filter = '') {
-        const f = filter.trim().toLowerCase();
-        let items = Object.values(S.ideas)
-          .map(o => ({ id: o.id, title: noteTitle(o), text: (o.text || '') }))
-          .filter(o => !f || o.title.toLowerCase().includes(f) || o.text.toLowerCase().includes(f));
-        if (S.noteSort === 'az') items.sort((a, b) => a.title.localeCompare(b.title, 'ja'));
-        else if (S.noteSort === 'za') items.sort((a, b) => b.title.localeCompare(a.title, 'ja'));
-        else if (S.noteSort === 'new') items.sort((a, b) => b.id - a.id);
-        else if (S.noteSort === 'old') items.sort((a, b) => a.id - b.id);
-        else if (S.noteSort === 'manual') {
-          const orderMap = new Map(S.noteOrder.map((id, i) => [id, i]));
-          items.sort((a, b) => (orderMap.has(a.id) ? orderMap.get(a.id) : 9999) - (orderMap.has(b.id) ? orderMap.get(b.id) : 9999));
-        } else items.sort((a, b) => a.id - b.id);
-        return items;
-      }
-      // ノートビュー左サイドバーのメモ一覧を、検索フィルターとソート順に従って再描画する。
-      function renderNoteList(filter = '') {
-        const box = document.getElementById('note-list-items');
-        const items = getSortedNoteItems(filter !== undefined ? filter : document.getElementById('note-search').value);
-        box.innerHTML = items.map(o =>
-          `<div class="nl-item${o.id === S.activeNote ? ' active' : ''}" data-id="${o.id}">${esc(o.title)}</div>`
-        ).join('') || '<div class="nlk-empty" style="padding:8px">該当なし</div>';
-        box.querySelectorAll('.nl-item').forEach(el =>
-          el.addEventListener('click', () => selectNote(+el.dataset.id)));
-        const activeEl = box.querySelector('.nl-item.active');
-        if (activeEl) activeEl.scrollIntoView({ block: 'nearest' });
-        const sb = document.getElementById('note-sort-btn');
-        if (sb) sb.textContent = { az: 'A→Z', za: 'Z→A', new: '新→古', old: '古→新', manual: '手動' }[S.noteSort] || 'A→Z';
-      }
-
-      // 指定IDのメモをアクティブにして、テキストエリア・プレビュー・リンクパネルを更新する。
-      function selectNote(id) {
-        if (id == null || !S.ideas[id]) {
-          S.activeNote = null;
-          document.getElementById('note-name').textContent = 'メモがありません';
-          document.getElementById('note-ta').value = '';
-          document.getElementById('note-preview').innerHTML = '';
-          document.getElementById('note-links').innerHTML = '';
-          return;
-        }
-        S.activeNote = id;
-        const o = S.ideas[id];
-        document.getElementById('note-name').textContent = noteTitle(o);
-        document.getElementById('note-color').style.background = COLOR_HEX[o.color || 'purple'];
-        const ta = document.getElementById('note-ta');
-        ta.value = o.text || '';
-        wlClose();
-        renderNotePreview();
-        renderNoteList(document.getElementById('note-search').value);
-        renderNoteLinks();
-      }
-
-      // 現在アクティブなメモのテキストをMarkdownレンダリングしてプレビューペインに表示する。
-      function renderNotePreview() {
-        const o = S.ideas[S.activeNote]; if (!o) return;
-        const pv = document.getElementById('note-preview');
-        pv.innerHTML = mdRender(o.text);
-        pv.querySelectorAll('.wikilink').forEach(el =>
-          el.addEventListener('click', () => openWikilink(el.dataset.wl)));
-      }
-
-      // ウィキリンクのタイトルが既存アイデアに一致すれば選択し、なければ新規作成してから選択する。
-      function openWikilink(title) {
-        let t = findIdeaByTitle(title);
-        if (!t) {
-          const id = createNoteFromTitle(title, S.activeNote);
-          renderNoteList(document.getElementById('note-search').value);
-          selectNote(id);
-        } else {
-          selectNote(t.id);
-        }
-      }
-
-      // マークダウン記法リファレンス（右ペイン常時表示）
-      const MD_CHEAT = `<div class="md-cheat">
-  <div class="md-cheat-hd">記法リファレンス</div>
-  <div class="md-cheat-sec">見出し</div>
-  <div class="md-cheat-row"><code># H1</code> <code>## H2</code> <code>### H3–6</code></div>
-  <div class="md-cheat-sec">インライン</div>
-  <div class="md-cheat-row"><code>**太字**</code> → <strong>太字</strong></div>
-  <div class="md-cheat-row"><code>*斜体*</code> → <em>斜体</em></div>
-  <div class="md-cheat-row"><code>***太字斜体***</code> → <strong><em>太字斜体</em></strong></div>
-  <div class="md-cheat-row"><code>~~打ち消し~~</code> → <del>打ち消し</del></div>
-  <div class="md-cheat-row"><code>==ハイライト==</code> → <span class="md-mark">ハイライト</span></div>
-  <div class="md-cheat-row"><code>\`インラインコード\`</code></div>
-  <div class="md-cheat-row"><code>[テキスト](url)</code></div>
-  <div class="md-cheat-sec">リスト・タスク</div>
-  <div class="md-cheat-row"><code>- 項目</code> / <code>1. 番号付き</code></div>
-  <div class="md-cheat-row"><code>- [ ] 未完了タスク</code></div>
-  <div class="md-cheat-row"><code>- [x] 完了タスク</code></div>
-  <div class="md-cheat-sec">ブロック要素</div>
-  <div class="md-cheat-row"><code>&gt; 引用</code></div>
-  <div class="md-cheat-row"><code>\`\`\`コードブロック\`\`\`</code></div>
-  <div class="md-cheat-row"><code>---</code> 区切り線</div>
-  <div class="md-cheat-row">行末スペース2つ → 改行</div>
-  <div class="md-cheat-sec">表</div>
-  <div class="md-cheat-row"><code>| 列A | 列B |</code></div>
-  <div class="md-cheat-row"><code>| :-- | --: |</code> <span style="font-size:9px;opacity:.6">左/右寄せ</span></div>
-  <div class="md-cheat-row"><code>| 値1 | 値2 |</code></div>
-  <div class="md-cheat-sec">ウィキリンク</div>
-  <div class="md-cheat-row"><code>[[別のメモ名]]</code></div>
-</div>`;
-
-      // ノートビュー右パネルに発リンク・バックリンク・ボード接続の各セクションを描画する。
-      function renderNoteLinks() {
-        const id = S.activeNote;
-        const box = document.getElementById('note-links');
-        if (id == null) { box.innerHTML = MD_CHEAT; return; }
-        const mkItem = (tid, withConnect) => {
-          const o = S.ideas[tid]; if (!o) return '';
-          const linked = withConnect && !hasConnectorBetween(id, tid);
-          return `<div class="nlk-item" data-go="${tid}">
-        <span class="nlk-tx">${esc(noteTitle(o))}</span>
-        ${linked ? `<span class="nlk-link" data-link="${tid}">＋つなぐ</span>` : ''}
-      </div>`;
-        };
-        const mkBackItem = (tid) => {
-          const o = S.ideas[tid]; if (!o) return '';
-          const alreadyBack = noteOutlinks(id).some(l => l.target && l.target.id === tid);
-          const linked = !hasConnectorBetween(id, tid);
-          return `<div class="nlk-item" data-go="${tid}">
-        <span class="nlk-tx">${esc(noteTitle(o))}</span>
-        ${!alreadyBack ? `<span class="nlk-back" data-back="${tid}">← リンク追記</span>` : ''}
-        ${linked ? `<span class="nlk-link" data-link="${tid}">＋つなぐ</span>` : ''}
-      </div>`;
-        };
-        const back = noteBacklinks(id);
-        const conn = noteConnLinks(id);
-        const out = noteOutlinks(id);
-        let h = '';
-        h += `<div class="nlk-sec">発リンク [[ ]]</div>`;
-        h += out.length ? out.map(l =>
-          l.target ? mkItem(l.target.id, true)
-            : `<div class="nlk-item missing" data-new="${esc(l.title)}"><span class="nlk-tx" style="color:var(--pink)">${esc(l.title)}</span><span class="nlk-link">作成</span></div>`
-        ).join('') : '<div class="nlk-empty">なし</div>';
-        h += `<div class="nlk-sec">バックリンク <span style="font-size:9px;opacity:.6">（このメモへリンクしているメモ）</span></div>`;
-        h += back.length ? back.map(b => mkBackItem(b)).join('') : '<div class="nlk-empty">なし</div>';
-        h += `<div class="nlk-sec">ボード接続</div>`;
-        h += conn.length ? conn.map(c => mkItem(c, false)).join('') : '<div class="nlk-empty">なし</div>';
-        box.innerHTML = h + MD_CHEAT;
-        box.querySelectorAll('.nlk-item').forEach(el => {
-          const go = el.dataset.go, nw = el.dataset.new;
-          el.addEventListener('click', e => {
-            if (e.target.dataset.link) { materializeLink(id, +e.target.dataset.link); return; }
-            if (e.target.dataset.back) {
-              const backId = +e.target.dataset.back;
-              if (!S.ideas[id] || !S.ideas[backId]) return;
-              if (hasConnectorBetween(id, backId)) { toast('既にリンク済みです'); return; }
-              S.connectors.push({ id: `c${S.nextId++}`, from: { kind: 'idea', id }, to: { kind: 'idea', id: backId }, type: 'link' });
-              rebuildNoteLinkBlock(id); rebuildNoteLinkBlock(backId);
-              redrawConnectors(); save(); renderNoteLinks();
-              toast(`[[${noteTitle(S.ideas[backId])}]] を追記しました`);
-              return;
-            }
-            if (nw != null) { openWikilink(nw); return; }
-            if (go != null) selectNote(+go);
-          });
-        });
-      }
-
-      // ボードビューに切り替えて指定アイデアを画面中央に表示し、フォーカスを当てる。
-      function navigateToNoteOnBoard(id) {
-        switchView('board');
-        const o = S.ideas[id]; if (!o) return;
-        const el = getEl('idea', id);
-        const w = el ? el.offsetWidth : 160, h = el ? el.offsetHeight : 80;
-        const r = boardWrap.getBoundingClientRect();
-        S.zoom = Math.min(Math.max(S.zoom, 1), 1.4);
-        S.pan.x = r.width / 2 - (o.x + w / 2) * S.zoom;
-        S.pan.y = r.height / 2 - (o.y + h / 2) * S.zoom;
-        applyXform(); redrawConnectors();
-        focus('idea', id);
-      }
-
-      // Note view wiring
-      document.querySelectorAll('.vs-btn').forEach(b =>
-        b.addEventListener('click', () => switchView(b.dataset.view)));
-      document.getElementById('note-search').addEventListener('input', e =>
-        renderNoteList(e.target.value));
-      document.getElementById('note-new').addEventListener('click', () => {
-        const id = createNoteFromTitle('新規メモ', S.activeNote);
-        renderNoteList();
-        selectNote(id);
-        enterNoteEdit();
-        setTimeout(() => document.getElementById('note-ta').select(), 0);
-      });
-      // ── [[ ]] autocomplete ──
-      const wlAutoEl = document.getElementById('wl-auto');
-      const wlA = { active: false, start: -1, query: '', items: [], sel: 0 };
-
-      // ウィキリンク補完ドロップダウンを非表示にして補完状態をリセットする。
-      function wlClose() {
-        wlA.active = false;
-        wlAutoEl.classList.remove('show');
-        wlAutoEl.innerHTML = '';
-      }
-      // テキストエリアのカーソル直前の [[ パターンを検出してウィキリンク補完候補を更新する。
-      function wlScan(ta) {
-        const before = ta.value.slice(0, ta.selectionStart);
-        const m = before.match(/\[\[([^\[\]\n]*)$/);
-        if (!m) { wlClose(); return; }
-        wlA.start = ta.selectionStart - m[1].length - 2; // pos of '[['
-        wlA.query = m[1];
-        const q = m[1].trim().toLowerCase();
-        const titles = Object.values(S.ideas)
-          .filter(o => o.id !== S.activeNote)
-          .map(o => noteTitle(o))
-          .filter((t, i, a) => a.indexOf(t) === i && (!q || t.toLowerCase().includes(q)))
-          .sort((a, b) => a.localeCompare(b, 'ja'))
-          .slice(0, 7);
-        const exact = titles.some(t => t.toLowerCase() === q);
-        wlA.items = titles.map(t => ({ label: t, create: false }));
-        if (q && !exact) wlA.items.push({ label: wlA.query.trim(), create: true });
-        if (!wlA.items.length) { wlClose(); return; }
-        wlA.sel = 0; wlA.active = true;
-        wlRender();
-      }
-      // ウィキリンク補完候補リストをドロップダウンにレンダリングする。
-      function wlRender() {
-        wlAutoEl.innerHTML = '<div class="wla-hd">[[ リンク ]]  ↑↓ 選択 / Enter 確定 / Esc</div>' +
-          wlA.items.map((it, i) =>
-            `<div class="wla-item${it.create ? ' create' : ''}${i === wlA.sel ? ' sel' : ''}" data-i="${i}">${it.create ? `＋ 「${esc(it.label)}」を新規作成` : esc(it.label)
-            }</div>`).join('');
-        wlAutoEl.classList.add('show');
-        wlAutoEl.querySelectorAll('.wla-item').forEach(el =>
-          el.addEventListener('mousedown', ev => { ev.preventDefault(); wlConfirm(+el.dataset.i); }));
-      }
-      // 選択されたウィキリンク補完候補をテキストエリアに挿入し、必要に応じて新規アイデアを作成する。
-      function wlConfirm(idx) {
-        const ta = document.getElementById('note-ta');
-        const it = wlA.items[idx]; if (!it) return;
-        const o = S.ideas[S.activeNote]; if (!o) return;
-        const after = ta.value.slice(ta.selectionStart);
-        const insert = `[[${it.label}]]`;
-        ta.value = ta.value.slice(0, wlA.start) + insert + after;
-        const caret = wlA.start + insert.length;
-        ta.setSelectionRange(caret, caret);
-        o.text = ta.value;
-        document.getElementById('note-name').textContent = noteTitle(o);
-        if (it.create && !findIdeaByTitle(it.label)) createNoteFromTitle(it.label, S.activeNote);
-        if (S.notePreview) renderNotePreview();
-        save();
-        wlClose();
-        ta.focus();
-      }
-
-      document.getElementById('note-ta').addEventListener('input', e => {
-        const o = S.ideas[S.activeNote]; if (!o) return;
-        o.text = e.target.value;
-        document.getElementById('note-name').textContent = noteTitle(o);
-        if (S.notePreview) renderNotePreview();
-        save();
-        wlScan(e.target);
-      });
-      document.getElementById('note-ta').addEventListener('keydown', e => {
-        // Ctrl+E: 絵文字ピッカーの開閉
-        if (e.ctrlKey && !e.altKey && !e.shiftKey && e.key === 'e') {
-          e.preventDefault(); e.stopPropagation();
-          if (EP.open) epClose(); else epOpen();
-          return;
-        }
-        // 絵文字ピッカーが開いているときは他のキーをブロック
-        if (EP.open) { return; }
-        // Alt+↑↓: 現在行を上または下に移動
-        if (e.altKey && !e.ctrlKey && !e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
-          e.preventDefault(); e.stopPropagation();
-          const ta = e.currentTarget;
-          const lines = ta.value.split('\n');
-          if (lines.length <= 1) return;
-          const before = ta.value.substring(0, ta.selectionStart);
-          const lineIdx = before.split('\n').length - 1;
-          const col = ta.selectionStart - (before.lastIndexOf('\n') + 1);
-          const swapIdx = lineIdx + (e.key === 'ArrowDown' ? 1 : -1);
-          if (swapIdx < 0 || swapIdx >= lines.length) return;
-          [lines[lineIdx], lines[swapIdx]] = [lines[swapIdx], lines[lineIdx]];
-          ta.value = lines.join('\n');
-          const newLineStart = lines.slice(0, swapIdx).reduce((s, l) => s + l.length + 1, 0);
-          const newPos = newLineStart + Math.min(col, lines[swapIdx].length);
-          ta.setSelectionRange(newPos, newPos);
-          if (S.activeNote != null && S.ideas[S.activeNote]) { S.ideas[S.activeNote].text = ta.value; save(); }
-          return;
-        }
-        // Shift+Enter: exit edit mode
-        if (e.key === 'Enter' && e.shiftKey && !wlA.active) { e.preventDefault(); e.stopPropagation(); document.getElementById('note-ta').blur(); return; }
-        if (!wlA.active) return;
-        if (e.key === 'ArrowDown') { e.preventDefault(); wlA.sel = (wlA.sel + 1) % wlA.items.length; wlRender(); }
-        else if (e.key === 'ArrowUp') { e.preventDefault(); wlA.sel = (wlA.sel - 1 + wlA.items.length) % wlA.items.length; wlRender(); }
-        else if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); wlConfirm(wlA.sel); }
-        else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); wlClose(); }
-      });
-      document.getElementById('note-ta').addEventListener('blur', () => {
-        // Sync connectors with the managed link block edited by the user
-        const id = S.activeNote;
-        if (id && S.ideas[id]) {
-          const n = s => (s || '').trim().toLowerCase();
-          const { links } = splitNote(S.ideas[id].text || '');
-          const expected = connectorLinkTitlesFor(id);
-          // Links the user added → create a 'link' connector
-          links.forEach(t => {
-            if (expected.some(e => n(e) === n(t))) return;
-            const target = findIdeaByTitle(t);
-            if (!target || target.id === id) return;
-            const exists = S.connectors.some(c =>
-              c.from.kind === 'idea' && c.to.kind === 'idea' &&
-              ((c.from.id === id && c.to.id === target.id) ||
-               (c.type === 'line' && c.from.id === target.id && c.to.id === id)));
-            if (!exists) S.connectors.push({ id: `c${S.nextId++}`, from: { kind: 'idea', id }, to: { kind: 'idea', id: target.id }, type: 'link' });
-          });
-          // Links the user removed → drop the matching connector
-          expected.forEach(t => {
-            if (links.some(l => n(l) === n(t))) return;
-            const target = findIdeaByTitle(t);
-            if (!target) return;
-            S.connectors = S.connectors.filter(c => {
-              if (c.from.kind !== 'idea' || c.to.kind !== 'idea') return true;
-              const match = (c.from.id === id && c.to.id === target.id) ||
-                            (c.type === 'line' && c.from.id === target.id && c.to.id === id);
-              return !match;
-            });
-          });
-          rebuildAllNoteLinkBlocks();
-          redrawConnectors(); save();
-        }
-        setTimeout(wlClose, 120);
-        renderNoteList(document.getElementById('note-search').value);
-        renderNoteLinks();
-      });
-      // ノートビューの編集テキストエリアとMarkdownプレビューを交互に切り替える。
-      function toggleNotePreview() {
-        S.notePreview = !S.notePreview;
-        document.getElementById('note-ta').classList.toggle('hidden', S.notePreview);
-        document.getElementById('note-preview').classList.toggle('hidden', !S.notePreview);
-        document.getElementById('note-toggle-prev').textContent = S.notePreview ? '編集' : 'プレビュー';
-        if (S.notePreview) renderNotePreview();
-        else document.getElementById('note-ta').focus();
-      }
-      // プレビュー表示中であれば閉じ、テキストエリアにフォーカスして編集モードへ移行する。
-      function enterNoteEdit() {
-        if (S.notePreview) toggleNotePreview();
-        document.getElementById('note-ta').focus();
-      }
-      document.getElementById('note-toggle-prev').addEventListener('click', toggleNotePreview);
-      document.getElementById('note-sort-btn').addEventListener('click', () => {
-        const order = ['az', 'za', 'new', 'old'];
-        S.noteSort = order[(order.indexOf(S.noteSort) + 1) % order.length];
-        renderNoteList(document.getElementById('note-search').value);
-        save();
-      });
-      document.getElementById('note-open-board').addEventListener('click', () => {
-        if (S.activeNote != null) navigateToNoteOnBoard(S.activeNote);
-        else switchView('board');
-      });
-      document.getElementById('note-json-export').addEventListener('click', exportJSON);
-      document.getElementById('note-json-import').addEventListener('click', () =>
-        document.getElementById('note-imp').click());
-      document.getElementById('note-imp').addEventListener('change', ev => {
-        importJSON(ev);
-      });
-      document.getElementById('note-txt-export').addEventListener('click', exportCurrentNoteText);
-      document.getElementById('note-delete-btn').addEventListener('click', deleteActiveNote);
-
-      // ─── MARKDOWN EXPORT ──────────────────────────────────────────────────
-      // 全アイデアをゾーン章・親子ツリー構造で整形してMarkdownファイルとしてダウンロードする。
-      function exportMarkdown() {
-        const lines = [];
-        lines.push('# IDEA BOARD');
-        lines.push('');
-        lines.push(`> エクスポート: ${new Date().toLocaleDateString('ja-JP')}`);
-        lines.push('');
-
-        // 1. Determine which zone each idea belongs to (by position containment)
-        const ideaZone = {};
-        Object.values(S.ideas).forEach(idea => {
-          for (const z of S.zones) {
-            if (idea.x >= z.x && idea.x <= z.x + z.w &&
-              idea.y >= z.y && idea.y <= z.y + z.h) {
-              ideaZone[idea.id] = z.id;
-              break;
-            }
-          }
-        });
-
-        // 2. Build directed adjacency list from connectors (idea-to-idea only)
-        const childrenOf = {}; // parent id → [child ids]
-        const parentOf = {}; // child id → parent id
-        S.connectors.forEach(conn => {
-          if (conn.from.kind !== 'idea' || conn.to.kind !== 'idea') return;
-          let parentId, childId;
-          if (conn.type === 'arrow') {
-            parentId = conn.from.id; childId = conn.to.id;
-          } else {
-            parentId = Math.min(conn.from.id, conn.to.id);
-            childId = Math.max(conn.from.id, conn.to.id);
-          }
-          if (!childrenOf[parentId]) childrenOf[parentId] = [];
-          childrenOf[parentId].push(childId);
-          if (!parentOf[childId]) parentOf[childId] = parentId; // first parent wins
-        });
-        // 2b. Add [[wikilink]] edges (A contains [[B]] → A is parent of B)
-        Object.values(S.ideas).forEach(a => {
-          extractWikilinks(a.text).forEach(title => {
-            const b = findIdeaByTitle(title);
-            if (!b || b.id === a.id) return;
-            if (!childrenOf[a.id]) childrenOf[a.id] = [];
-            if (!childrenOf[a.id].includes(b.id)) childrenOf[a.id].push(b.id);
-            if (!parentOf[b.id]) parentOf[b.id] = a.id;
-          });
-        });
-
-        // 3. DFS printer
-        const printed = new Set();
-        function printIdea(id, indent) {
-          if (printed.has(id)) return;
-          printed.add(id);
-          const idea = S.ideas[id];
-          if (!idea) return;
-          const text = (idea.text || '').trim();
-          const firstLine = (text.split('\n')[0] || '(空)').replace(/^#{1,6}\s*/, '');
-          const rest = text.split('\n').slice(1).join('\n').trim();
-          lines.push(`${indent}- ${firstLine}`);
-          if (rest) rest.split('\n').forEach(l => lines.push(`${indent}  ${l}`));
-          (childrenOf[id] || []).slice().sort((a, b) => a - b).forEach(cid => printIdea(cid, indent + '  '));
-        }
-
-        // 4. Print zone chapters (sorted by zone number)
-        const sortedZones = [...S.zones].sort((a, b) => +a.id.replace('z', '') - +b.id.replace('z', ''));
-        const allIds = Object.keys(S.ideas).map(Number).sort((a, b) => a - b);
-
-        sortedZones.forEach(z => {
-          const zoneIdeas = allIds.filter(id => ideaZone[id] === z.id);
-          if (!zoneIdeas.length) return;
-          lines.push(`## ${z.label}`);
-          lines.push('');
-          // Roots = ideas with no parent inside this zone
-          const roots = zoneIdeas.filter(id => {
-            const p = parentOf[id];
-            return !p || !zoneIdeas.includes(p);
-          }).sort((a, b) => a - b);
-          roots.forEach(id => printIdea(id, ''));
-          zoneIdeas.forEach(id => { if (!printed.has(id)) printIdea(id, ''); });
-          lines.push('');
-        });
-
-        // 5. Ungrouped ideas
-        const ungrouped = allIds.filter(id => !ideaZone[id]);
-        if (ungrouped.length) {
-          lines.push('## ゾーンなし');
-          lines.push('');
-          const roots = ungrouped.filter(id => {
-            const p = parentOf[id];
-            return !p || !ungrouped.includes(p);
-          }).sort((a, b) => a - b);
-          roots.forEach(id => printIdea(id, ''));
-          ungrouped.forEach(id => { if (!printed.has(id)) printIdea(id, ''); });
-          lines.push('');
-        }
-
-        const md = lines.join('\n');
-        const blob = new Blob([md], { type: 'text/markdown' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url; a.download = `ideaboard-${Date.now()}.md`;
-        a.click(); URL.revokeObjectURL(url);
-        toast('Markdownをエクスポートしました');
-      }
-
       // ─── EXPORT / IMPORT ──────────────────────────────────────────────────
       // アプリの全状態（メモ・コネクター・ゾーン・設定）をJSONファイルとしてダウンロードする。
       function exportJSON() {
         const data = {
           ideas: S.ideas, connectors: S.connectors, zones: S.zones, books: S.books,
-          nextId: S.nextId, noteSort: S.noteSort, noteOrder: S.noteOrder,
+          nextId: S.nextId,
           meta: { exported: new Date().toISOString(), version: 4 }
         };
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -3836,9 +2595,7 @@
             Object.assign(S, {
               ideas: d.ideas || {}, connectors: d.connectors || [],
               zones: d.zones || [], books: d.books || [],
-              nextId: d.nextId || 1,
-              noteSort: d.noteSort || S.noteSort,
-              noteOrder: d.noteOrder || []
+              nextId: d.nextId || 1
             });
             const fixed = {};
             Object.entries(S.ideas).forEach(([k, v]) => { fixed[+k] = v; v.id = +v.id; });
@@ -3848,359 +2605,23 @@
               if (typeof c.to !== 'object') c.to = { kind: 'idea', id: +c.to };
             });
             renderAll(); save();
-            if (S.view === 'note') {
-              const first = Object.values(S.ideas)[0];
-              S.activeNote = first ? first.id : null;
-              renderNoteList(); selectNote(S.activeNote);
-            }
             toast('インポートしました');
           } catch (ex) { toast('インポートに失敗しました'); }
         };
         reader.readAsText(file);
         ev.target.value = '';
       }
-      // 現在選択中のメモのテキストをMarkdown（.md）ファイルとして個別ダウンロードする。
-      function exportCurrentNoteText() {
-        const o = S.ideas[S.activeNote];
-        if (!o) { toast('エクスポートするメモを選択してください'); return; }
-        const title = noteTitle(o);
-        const filename = title.replace(/[\/\\?%*:|"<>]/g, '-') + '.md';
-        const blob = new Blob([o.text || ''], { type: 'text/markdown' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url; a.download = filename;
-        a.click(); URL.revokeObjectURL(url);
-        toast(`${filename} をエクスポートしました`);
-      }
-
-      // ─── EMOJI PICKER ────────────────────────────────────────────────────
-      // カテゴリ別絵文字データ。各エントリは [絵文字, 検索キーワード（日英混在）]。
-      const EMOJI_CATS = [
-        { label: '😀', name: '顔・感情', data: [
-          ['😀','笑顔 smile happy grinning'],['😁','歯 grin beam'],['😂','笑い泣き lol joy tears'],
-          ['🤣','大爆笑 rolling floor laughing'],['😃','smile open mouth'],['😄','grin eye smile'],
-          ['😅','cold sweat nervous'],['😆','squint laugh'],['😉','wink ウィンク'],
-          ['😊','blush smile 微笑み'],['😋','yum tongue 舌'],['😎','cool sunglasses サングラス'],
-          ['😍','heart eyes love 好き'],['🥰','hearts love 大好き'],['😘','kiss 投げキス'],
-          ['🤗','hug 抱擁'],['🤔','thinking 考え中'],['🤨','raised eyebrow 疑問'],
-          ['😐','neutral 無表情'],['😑','expressionless 無'],['🙄','eye roll 呆れ'],
-          ['😏','smirk にやり'],['😒','unamused つまらない'],['😔','pensive 物悲しい'],
-          ['😢','cry 泣く'],['😭','sob 大泣き crying'],['😤','triumph 怒り鼻息'],
-          ['😠','angry 怒る'],['😡','rage 激怒'],['🤬','cursing 激怒 swearing'],
-          ['🤯','exploding head 衝撃 mind blown'],['😱','scream 驚き恐怖'],
-          ['😨','fearful 恐怖'],['😰','anxious sweat 不安'],['😓','downcast sweat ため息'],
-          ['🥺','pleading eyes お願い'],['😴','sleeping 睡眠 zzz'],['🤤','drool よだれ'],
-          ['🤢','nausea 気持ち悪い'],['🤮','vomit 嘔吐'],['🤧','sneezing くしゃみ'],
-          ['😷','mask 風邪 sick'],['🤒','sick 病気 thermometer'],['🤕','injured 怪我 bandage'],
-          ['🥳','party 祝い celebrate'],['😇','angel 天使 halo'],['🤩','star struck 感激 wow'],
-          ['🧐','monocle 分析 inspect'],['🤓','nerd 勉強 glasses'],
-          ['😈','devil 悪魔'],['👻','ghost ゴースト'],['💀','skull 骸骨 death'],
-          ['🤖','robot ロボット'],['🎭','theater 演技'],['🫠','melting face'],
-          ['🫡','saluting face 敬礼'],['🫨','shaking face 震え'],
-        ]},
-        { label: '👋', name: '手・ジェスチャー', data: [
-          ['👋','wave 手を振る'],['✋','raised hand 手を挙げる'],['🤚','raised back hand'],
-          ['🖐️','hand splayed 5本指'],['🖖','vulcan salute スタートレック'],
-          ['👌','ok 了解'],['🤌','pinched fingers イタリア'],['🤏','pinching hand'],
-          ['✌️','peace victory ピース'],['🤞','crossed fingers 祈り'],
-          ['🤟','love you gesture 愛してる'],['🤘','rock horn ロック'],
-          ['🤙','call me shaka'],['👈','point left 左'],['👉','point right 右'],
-          ['👆','point up 上'],['👇','point down 下'],['☝️','index up 人差し指'],
-          ['👍','thumbs up いいね good'],['👎','thumbs down よくない bad'],
-          ['✊','fist 握り拳'],['👊','oncoming fist パンチ'],
-          ['🤛','left fist 左拳'],['🤜','right fist 右拳'],
-          ['👏','clap 拍手'],['🙌','raising hands 万歳'],
-          ['🤝','handshake 握手'],['🙏','pray 祈り please ありがとう'],
-          ['✍️','writing pen 書く'],['💪','muscle 筋肉 力 strong'],
-          ['🫶','heart hands ハートの手'],['🫵','point you あなた'],
-        ]},
-        { label: '❤️', name: 'ハート・記号', data: [
-          ['❤️','red heart 赤ハート love 愛'],['🧡','orange heart オレンジ'],
-          ['💛','yellow heart 黄色'],['💚','green heart 緑'],
-          ['💙','blue heart 青'],['💜','purple heart 紫'],
-          ['🖤','black heart 黒'],['🤍','white heart 白'],['🤎','brown heart 茶'],
-          ['💕','two hearts 2つのハート'],['💞','revolving hearts'],
-          ['💓','beating heart 鼓動'],['💗','growing heart'],['💖','sparkling heart キラキラ'],
-          ['💘','heart arrow キューピッド'],['💝','heart ribbon リボン'],
-          ['💔','broken heart 失恋'],['❤️‍🔥','heart fire 情熱'],
-          ['⭐','star 星'],['🌟','glowing star 輝く星'],['✨','sparkles キラキラ'],
-          ['💫','dizzy star くらくら'],['⚡','lightning bolt 雷'],['🔥','fire 炎 hot'],
-          ['💥','boom 爆発 explosion'],['❄️','snowflake 雪'],
-          ['🎉','party popper お祝い confetti'],['🎊','confetti ball 紙吹雪'],
-          ['🏆','trophy トロフィー 優勝'],['🥇','gold medal 金メダル'],
-          ['🎖️','medal メダル'],['🏅','sports medal'],
-        ]},
-        { label: '🌿', name: '自然', data: [
-          ['🌱','seedling 芽 sprout'],['🌿','herb 草 plant'],
-          ['🍀','four leaf clover 四葉のクローバー luck'],['🌸','cherry blossom 桜'],
-          ['🌺','hibiscus 花'],['🌻','sunflower ひまわり'],
-          ['🌹','rose バラ'],['🌷','tulip チューリップ'],['💐','bouquet 花束'],
-          ['🍁','maple leaf もみじ 紅葉'],['🍂','fallen leaf 落ち葉'],
-          ['🍃','leaf 葉っぱ'],['🌲','evergreen tree 木'],
-          ['🌳','deciduous tree 広葉樹'],['🌴','palm tree ヤシの木'],
-          ['🎋','bamboo 七夕 たなばた'],['🌾','sheaf rice 稲穂'],
-          ['🍄','mushroom きのこ'],['🌊','wave 波 ocean'],['🌈','rainbow 虹'],
-          ['☀️','sun 太陽 sunny'],['🌙','crescent moon 月'],
-          ['⭐','star 星'],['🌎','earth globe 地球'],
-          ['🗻','mount fuji 富士山'],['🏔️','mountain 山'],
-          ['🌋','volcano 火山'],['🏝️','island 島'],
-          ['🐶','dog 犬'],['🐱','cat 猫'],['🐭','mouse ねずみ'],
-          ['🐹','hamster ハムスター'],['🐰','rabbit うさぎ'],
-          ['🦊','fox きつね'],['🐻','bear くま'],['🐼','panda パンダ'],
-          ['🐨','koala コアラ'],['🐯','tiger 虎'],['🦁','lion ライオン'],
-          ['🐸','frog かえる'],['🐧','penguin ペンギン'],
-          ['🦋','butterfly 蝶'],['🐝','bee ハチ 蜂'],['🐠','fish 魚'],
-        ]},
-        { label: '🍕', name: '食べ物', data: [
-          ['🍎','apple りんご'],['🍊','tangerine みかん orange'],
-          ['🍋','lemon レモン'],['🍇','grapes ぶどう'],
-          ['🍓','strawberry いちご'],['🍒','cherries さくらんぼ'],
-          ['🍑','peach もも'],['🥭','mango マンゴー'],
-          ['🍍','pineapple パイナップル'],['🍌','banana バナナ'],
-          ['🍕','pizza ピザ'],['🍔','hamburger バーガー'],
-          ['🌮','taco タコス'],['🍣','sushi 寿司'],
-          ['🍜','ramen ラーメン'],['🍝','spaghetti pasta パスタ'],
-          ['🍛','curry カレー'],['🍱','bento 弁当'],
-          ['🍙','rice ball おにぎり'],['🍚','rice ご飯'],
-          ['🍰','cake ケーキ slice'],['🎂','birthday cake 誕生日ケーキ'],
-          ['🍩','donut ドーナツ'],['🍦','soft ice cream ソフトクリーム'],
-          ['🍫','chocolate チョコレート'],['🍬','candy キャンディ'],
-          ['☕','coffee コーヒー'],['🍵','tea お茶 green tea'],
-          ['🧋','bubble tea タピオカ'],['🍺','beer ビール'],
-          ['🍾','champagne シャンパン wine'],['🥂','clinking glasses 乾杯'],
-        ]},
-        { label: '🚀', name: '移動・場所', data: [
-          ['🚀','rocket ロケット launch'],['✈️','airplane 飛行機 plane'],
-          ['🚂','train 電車 steam'],['🚗','car 車 automobile'],
-          ['🚲','bicycle 自転車 bike'],['🛸','flying saucer UFO'],
-          ['🚁','helicopter ヘリコプター'],['⛵','sailboat 帆船'],
-          ['🚢','ship 船 cruise'],['🏠','house 家 home'],
-          ['🏢','office building オフィスビル'],['🏫','school 学校'],
-          ['🏥','hospital 病院'],['🏦','bank 銀行'],['🏪','store コンビニ 店'],
-          ['🗼','tokyo tower 東京タワー'],['🗽','statue of liberty 自由の女神'],
-          ['🏖️','beach 海 ビーチ'],['🌆','cityscape 都市 city'],
-          ['🌃','night city 夜景'],['🌉','bridge 橋'],
-          ['🗺️','world map 世界地図'],['🧭','compass コンパス 方位'],
-          ['📍','location pin 場所'],['🗾','japan 日本'],
-        ]},
-        { label: '💡', name: '物・ツール', data: [
-          ['💡','light bulb アイデア idea 電球'],['📌','pushpin ピン pin'],
-          ['📍','round pushpin 場所ピン'],['📎','paperclip クリップ'],
-          ['✂️','scissors はさみ cut'],['🖊️','pen ペン 書く'],
-          ['📝','memo メモ note'],['📖','open book 本 読む'],
-          ['📚','books 本棚 library'],['📓','notebook ノート'],
-          ['📋','clipboard クリップボード'],['📊','bar chart グラフ statistics'],
-          ['📈','chart up 上昇 growth'],['📉','chart down 下降 decline'],
-          ['🗂️','card folders ファイル'],['📦','package box 荷物'],
-          ['🗑️','wastebasket ゴミ trash delete'],['🔍','search 検索 magnify'],
-          ['💰','money bag お金 money'],['💳','credit card カード'],
-          ['📱','smartphone スマホ mobile'],['💻','laptop ノートPC'],
-          ['🖥️','desktop computer デスクトップ'],['⌨️','keyboard キーボード'],
-          ['🖱️','mouse マウス'],['🔋','battery バッテリー'],
-          ['📷','camera カメラ photo'],['🎤','microphone マイク'],
-          ['🎧','headphone ヘッドフォン earphone'],['🔑','key 鍵 key'],
-          ['🔒','locked 施錠 lock'],['🔓','unlocked 解錠'],
-          ['⚙️','gear 歯車 settings 設定'],['🔧','wrench スパナ tool'],
-          ['🔨','hammer ハンマー'],['🧰','toolbox ツールボックス'],
-          ['🧲','magnet 磁石'],['💊','pill 薬 medicine'],
-          ['🧪','test tube 試験管 experiment'],['🔭','telescope 望遠鏡'],
-          ['🧬','dna DNA 遺伝子'],['⏰','alarm clock 目覚まし時計'],
-          ['📅','calendar カレンダー date'],['🗓️','spiral calendar 予定'],
-          ['⏱️','stopwatch ストップウォッチ timer'],
-        ]},
-        { label: '🎮', name: '活動・エンタメ', data: [
-          ['🎮','game controller ゲーム'],['🎯','bullseye 的 target'],
-          ['🎲','dice サイコロ game'],['🎨','palette アート art 絵'],
-          ['🎬','clapper board 映画 movie'],['🎵','music note 音楽'],
-          ['🎶','musical notes 音符'],['🎸','guitar ギター'],
-          ['🎹','piano ピアノ keyboard'],['🎺','trumpet トランペット'],
-          ['🎷','saxophone サックス'],['🥁','drum ドラム'],
-          ['⚽','soccer ball サッカー football'],['🏀','basketball バスケ'],
-          ['🎾','tennis テニス'],['⚾','baseball 野球'],['🏈','football アメフト'],
-          ['🏋️','weightlifting ウェイトトレーニング gym'],
-          ['🧘','meditation 瞑想 yoga'],['🏃','running 走る run'],
-          ['🚶','walking 歩く walk'],['💃','dancing ダンス'],
-          ['🎁','gift present プレゼント'],['🎀','ribbon リボン bow'],
-          ['🎪','circus tent サーカス'],['🎠','carousel メリーゴーランド'],
-          ['🎡','ferris wheel 観覧車'],['🎢','roller coaster ジェットコースター'],
-        ]},
-        { label: '✅', name: '記号・マーク', data: [
-          ['✅','check mark チェック ok done 完了'],['❌','cross mark バツ ng no'],
-          ['⭕','circle 丸 ok yes'],['❓','question mark 疑問 ?'],
-          ['❗','exclamation 感嘆符 !'],['‼️','double exclamation 二重感嘆'],
-          ['💯','hundred 100点 perfect'],['🆕','new 新規'],['🆒','cool'],
-          ['🆗','ok'],['🔴','red circle 赤丸'],['🟠','orange circle オレンジ'],
-          ['🟡','yellow circle 黄色'],['🟢','green circle 緑'],
-          ['🔵','blue circle 青'],['🟣','purple circle 紫'],
-          ['⚫','black circle 黒'],['⚪','white circle 白'],
-          ['🔺','red triangle up 赤三角上'],['🔻','red triangle down 赤三角下'],
-          ['▶️','play 再生'],['⏸️','pause 一時停止'],['⏩','fast forward 早送り'],
-          ['🔁','repeat リピート loop'],['🔀','shuffle シャッフル random'],
-          ['➡️','right arrow 右矢印'],['⬅️','left arrow 左矢印'],
-          ['⬆️','up arrow 上矢印'],['⬇️','down arrow 下矢印'],
-          ['↩️','return 戻る undo'],['🔗','link リンク chain'],
-          ['⚠️','warning 警告 注意 caution'],['🚫','prohibited 禁止 no'],
-          ['💬','speech bubble コメント comment'],['💭','thought 思考 thinking'],
-          ['📣','megaphone 告知 announce'],['🔔','bell 通知 notification'],
-          ['📢','loudspeaker 拡声器'],['🏷️','label タグ tag'],
-          ['🔖','bookmark ブックマーク'],['📌','pin ピン'],
-          ['🆙','up button 上'],['🔝','top button トップ'],
-        ]},
-      ];
-
-      // 絵文字ピッカーの状態
-      const EP = { open: false, catIdx: 0, sel: -1, filtered: [] };
-
-      function epOpen() {
-        const ta = document.getElementById('note-ta');
-        const rect = ta.getBoundingClientRect();
-        const pk = document.getElementById('emoji-picker');
-        // テキストエリアの右上付近に配置
-        const top = Math.max(8, rect.top + 8);
-        const left = Math.min(window.innerWidth - 384, rect.right - 376);
-        pk.style.top = top + 'px';
-        pk.style.left = Math.max(8, left) + 'px';
-        pk.classList.add('ep-open');
-        EP.open = true;
-        EP.sel = -1;
-        document.getElementById('ep-search').value = '';
-        epRenderCats();
-        epFilter('');
-        document.getElementById('ep-search').focus();
-      }
-
-      function epClose() {
-        document.getElementById('emoji-picker').classList.remove('ep-open');
-        EP.open = false;
-        document.getElementById('note-ta').focus();
-      }
-
-      function epRenderCats() {
-        document.getElementById('ep-cats').innerHTML = EMOJI_CATS.map((c, i) =>
-          `<button class="ep-cat${i === EP.catIdx ? ' active' : ''}" data-ci="${i}" title="${c.name}">${c.label}</button>`
-        ).join('');
-      }
-
-      function epFilter(q) {
-        q = q.toLowerCase().trim();
-        const searching = q.length > 0;
-        // カテゴリタブの dim 切替
-        document.querySelectorAll('.ep-cat').forEach(b => b.classList.toggle('ep-dim', searching));
-        if (searching) {
-          EP.filtered = [];
-          EMOJI_CATS.forEach(cat => cat.data.forEach(([e, kw]) => {
-            if (kw.toLowerCase().includes(q) || e.includes(q)) EP.filtered.push(e);
-          }));
-        } else {
-          EP.filtered = (EMOJI_CATS[EP.catIdx]?.data || []).map(d => d[0]);
-        }
-        EP.sel = EP.filtered.length > 0 ? 0 : -1;
-        epRenderGrid();
-      }
-
-      function epRenderGrid() {
-        const grid = document.getElementById('ep-grid');
-        grid.innerHTML = EP.filtered.map((e, i) =>
-          `<button class="ep-em${i === EP.sel ? ' ep-sel' : ''}" data-i="${i}" tabindex="-1">${e}</button>`
-        ).join('');
-        // 選択中の絵文字をスクロール表示
-        if (EP.sel >= 0) {
-          const sel = grid.querySelector('.ep-sel');
-          if (sel) sel.scrollIntoView({ block: 'nearest' });
-        }
-      }
-
-      function epInsert(emoji) {
-        const ta = document.getElementById('note-ta');
-        const s = ta.selectionStart, end = ta.selectionEnd;
-        ta.value = ta.value.slice(0, s) + emoji + ta.value.slice(end);
-        ta.selectionStart = ta.selectionEnd = s + [...emoji].length;
-        if (S.activeNote != null && S.ideas[S.activeNote]) { S.ideas[S.activeNote].text = ta.value; save(); }
-        epClose();
-      }
-
-      function epNavGrid(dir) {
-        // dir: 'right'|'left'|'up'|'down'
-        if (!EP.filtered.length) return;
-        const n = EP.filtered.length;
-        // 実際のDOM列数を計算（ハードコードではなくレイアウトから取得）
-        const btns = document.getElementById('ep-grid').querySelectorAll('.ep-em');
-        let cols = 9; // フォールバック
-        if (btns.length >= 2) {
-          const firstY = btns[0].getBoundingClientRect().top;
-          let c = 0;
-          for (const b of btns) { if (Math.abs(b.getBoundingClientRect().top - firstY) < 4) c++; else break; }
-          if (c > 0) cols = c;
-        }
-        let s = EP.sel < 0 ? 0 : EP.sel;
-        if (dir === 'right') s = Math.min(s + 1, n - 1);
-        else if (dir === 'left') s = Math.max(s - 1, 0);
-        else if (dir === 'down') s = Math.min(s + cols, n - 1);
-        else if (dir === 'up') { s = s - cols; if (s < 0) return; }
-        EP.sel = s;
-        epRenderGrid();
-      }
-
-      // 検索入力のキーボードハンドラ
-      document.getElementById('ep-search').addEventListener('keydown', e => {
-        if (e.key === 'Escape') { e.preventDefault(); epClose(); return; }
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          if (EP.sel >= 0 && EP.filtered[EP.sel]) epInsert(EP.filtered[EP.sel]);
-          return;
-        }
-        if (e.key === 'ArrowRight') { e.preventDefault(); epNavGrid('right'); return; }
-        if (e.key === 'ArrowLeft') { e.preventDefault(); epNavGrid('left'); return; }
-        if (e.key === 'ArrowDown') { e.preventDefault(); epNavGrid('down'); return; }
-        if (e.key === 'ArrowUp') { e.preventDefault(); epNavGrid('up'); return; }
-        // Tab: カテゴリを切り替え（検索が空のとき）
-        if (e.key === 'Tab' && !document.getElementById('ep-search').value) {
-          e.preventDefault();
-          EP.catIdx = (EP.catIdx + (e.shiftKey ? -1 + EMOJI_CATS.length : 1)) % EMOJI_CATS.length;
-          EP.sel = -1;
-          epRenderCats();
-          epFilter('');
-          return;
-        }
-      });
-      document.getElementById('ep-search').addEventListener('input', e => {
-        EP.sel = -1;
-        epFilter(e.target.value);
-      });
-      // グリッドのクリック
-      document.getElementById('ep-grid').addEventListener('click', e => {
-        const btn = e.target.closest('.ep-em');
-        if (btn) epInsert(EP.filtered[+btn.dataset.i]);
-      });
-      // カテゴリタブのクリック
-      document.getElementById('ep-cats').addEventListener('click', e => {
-        const btn = e.target.closest('.ep-cat');
-        if (!btn) return;
-        EP.catIdx = +btn.dataset.ci;
-        EP.sel = -1;
-        document.getElementById('ep-search').value = '';
-        epRenderCats();
-        epFilter('');
-      });
-      // 絵文字ピッカーを開くボタン
-      document.getElementById('note-emoji-btn').addEventListener('click', () => {
-        if (EP.open) epClose(); else epOpen();
-      });
-      // ピッカー外クリックで閉じる
-      document.addEventListener('mousedown', e => {
-        if (!EP.open) return;
-        const pk = document.getElementById('emoji-picker');
-        if (!pk.contains(e.target) && e.target.id !== 'note-emoji-btn') epClose();
-      });
-
       // ─── INIT ─────────────────────────────────────────────────────────────
       (function init() {
         const hasSaved = loadSaved();
         renderAll();
         if (!hasSaved) toast('i でアイデアを作成、Enter で次々と連続入力  /  c で接続  /  f でジャンプ選択  /  Alt+ドラッグ でパン');
+        document.getElementById('json-import-btn').addEventListener('click', () =>
+          document.getElementById('json-import-input').click());
+        document.getElementById('json-import-input').addEventListener('change', ev => importJSON(ev));
       })();
 
-      return { exportMarkdown };
+      return { exportJSON, importJSON };
     })();
   </script>
 </body>
