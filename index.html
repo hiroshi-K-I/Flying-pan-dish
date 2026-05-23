@@ -1574,6 +1574,78 @@
 
       // ─── DRAG ─────────────────────────────────────────────────────────────
       // 要素にドラッグ操作を追加する。マウスダウン→移動でオブジェクト座標を更新し保存する。
+      // ─── SNAP & ALIGNMENT GUIDES ─────────────────────────────────────────
+      const SNAP = 20;
+      let snapEnabled = true;
+      function snapVal(v) { return Math.round(v / SNAP) * SNAP; }
+
+      // alignment guide SVG elements (drawn in board coordinate space)
+      const guideGroup = (() => {
+        const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        g.id = 'align-guides';
+        svgOverlay.appendChild(g);
+        return g;
+      })();
+
+      function clearGuides() { guideGroup.innerHTML = ''; }
+
+      function drawGuides(dragEl, obj) {
+        clearGuides();
+        const elR = dragEl.getBoundingClientRect();
+        const wrapR = boardWrap.getBoundingClientRect();
+        // convert dragged card bounds to board-space
+        const toBoard = v => (v - wrapR.left - S.pan.x) / S.zoom;
+        const toBoardY = v => (v - wrapR.top - S.pan.y) / S.zoom;
+        const cx = toBoard(elR.left + elR.width / 2);
+        const cy = toBoardY(elR.top + elR.height / 2);
+        const THRESH = 6; // px in board-space
+        const guideLines = []; // {x1,y1,x2,y2}
+
+        Object.values(S.ideas).forEach(other => {
+          if (other.id === obj.id) return;
+          const otherEl = document.getElementById(`idea-${other.id}`);
+          if (!otherEl || otherEl.style.display === 'none') return;
+          const oR = otherEl.getBoundingClientRect();
+          const oLeft = toBoard(oR.left), oRight = toBoard(oR.right);
+          const oTop = toBoardY(oR.top), oBottom = toBoardY(oR.bottom);
+          const oCX = (oLeft + oRight) / 2, oCY = (oTop + oBottom) / 2;
+          const myLeft = toBoard(elR.left), myRight = toBoard(elR.right);
+          const myTop = toBoardY(elR.top), myBottom = toBoardY(elR.bottom);
+
+          // X alignments (vertical guide lines)
+          [[myLeft, oLeft],[myLeft, oCX],[myLeft, oRight],
+           [cx, oLeft],[cx, oCX],[cx, oRight],
+           [myRight, oLeft],[myRight, oCX],[myRight, oRight]].forEach(([a,b]) => {
+            if (Math.abs(a - b) < THRESH) {
+              guideLines.push({ x1: b, x2: b, y1: Math.min(myTop, oTop) - 20, y2: Math.max(myBottom, oBottom) + 20 });
+            }
+          });
+          // Y alignments (horizontal guide lines)
+          [[myTop, oTop],[myTop, oCY],[myTop, oBottom],
+           [cy, oTop],[cy, oCY],[cy, oBottom],
+           [myBottom, oTop],[myBottom, oCY],[myBottom, oBottom]].forEach(([a,b]) => {
+            if (Math.abs(a - b) < THRESH) {
+              guideLines.push({ x1: Math.min(myLeft, oLeft) - 20, x2: Math.max(myRight, oRight) + 20, y1: b, y2: b });
+            }
+          });
+        });
+
+        // draw deduplicated guides in SVG board-space (apply board transform via transform attr)
+        guideLines.forEach(({x1,y1,x2,y2}) => {
+          const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+          // convert board-space back to svg-overlay space
+          const toSvgX = bx => bx * S.zoom + S.pan.x;
+          const toSvgY = by => by * S.zoom + S.pan.y;
+          line.setAttribute('x1', toSvgX(x1)); line.setAttribute('y1', toSvgY(y1));
+          line.setAttribute('x2', toSvgX(x2)); line.setAttribute('y2', toSvgY(y2));
+          line.setAttribute('stroke', '#f97316');
+          line.setAttribute('stroke-width', '1');
+          line.setAttribute('stroke-dasharray', '4 3');
+          line.setAttribute('opacity', '0.8');
+          guideGroup.appendChild(line);
+        });
+      }
+
       function makeDraggable(el, getObj, onPos, excludeSel) {
         el.addEventListener('mousedown', e => {
           if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return;
@@ -1583,17 +1655,25 @@
           const obj = getObj();
           if (!obj) return;
           const sx = e.clientX, sy = e.clientY, ox = obj.x, oy = obj.y;
+          const isIdea = el.classList.contains('idea');
           el.style.zIndex = 99; el.style.transition = 'none';
           const onMove = e => {
             obj.x = ox + (e.clientX - sx) / S.zoom;
             obj.y = oy + (e.clientY - sy) / S.zoom;
             el.style.left = obj.x + 'px'; el.style.top = obj.y + 'px';
             redrawConnectors();
+            if (isIdea && snapEnabled) drawGuides(el, obj);
           };
-          const onUp = () => {
+          const onUp = e => {
             el.style.zIndex = ''; el.style.transition = '';
-            // resolve overlaps only for idea dragging
-            if (el.classList.contains('idea')) resolveOverlaps();
+            clearGuides();
+            // snap to grid unless Alt held or snap disabled
+            if (isIdea && snapEnabled && !e.altKey) {
+              obj.x = snapVal(obj.x); obj.y = snapVal(obj.y);
+              el.style.left = obj.x + 'px'; el.style.top = obj.y + 'px';
+              redrawConnectors();
+            }
+            if (isIdea) resolveOverlaps();
             save();
             document.removeEventListener('mousemove', onMove);
             document.removeEventListener('mouseup', onUp);
@@ -1823,6 +1903,11 @@
           case 'l':
             e.preventDefault();
             if (S.lensMode) exitLensMode(); else enterLensMode();
+            break;
+          case 'G': // Shift+G: snap toggle
+            e.preventDefault();
+            snapEnabled = !snapEnabled;
+            toast(snapEnabled ? 'スナップ ON' : 'スナップ OFF');
             break;
           case 'g':
             e.preventDefault();
