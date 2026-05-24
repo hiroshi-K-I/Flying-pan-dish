@@ -210,6 +210,7 @@
       z-index: 0;
       background-image: radial-gradient(circle, var(--board-dot) 1.2px, transparent 1.2px);
       background-size: var(--grid-size, 24px) var(--grid-size, 24px);
+      background-position: var(--grid-ox, 0px) var(--grid-oy, 0px);
     }
 
     #board {
@@ -340,93 +341,68 @@
     /* ─── ZONE ─── */
     .zone {
       position: absolute;
-      border: 1.5px dashed var(--zone-border);
-      border-radius: 12px;
-      background: var(--zone-bg);
-      backdrop-filter: blur(1px);
+      border: 1.5px solid var(--zone-border-col, rgba(255,255,255,.14));
+      border-radius: 10px;
+      background: var(--zone-fill, rgba(255,255,255,.025));
       cursor: default;
-      transition: border-color .15s, box-shadow .15s;
+      transition: border-color .15s, box-shadow .15s, background .15s;
     }
-
+    .zone:hover {
+      border-color: var(--zone-accent-col, rgba(255,255,255,.22));
+    }
     .zone.focused {
-      border-color: var(--accent);
-      border-style: solid;
-      box-shadow: 0 0 0 1px var(--accent), 0 4px 20px rgba(24,160,251,.12);
+      border-color: var(--zone-accent-col, var(--accent));
+      box-shadow: 0 0 0 1px var(--zone-accent-col, var(--accent)), 0 4px 24px rgba(0,0,0,.2);
     }
-
-    .zone-title {
-      position: absolute;
-      top: -11px; left: 12px;
-      font-size: 11px;
-      font-weight: 600;
-      color: var(--muted);
-      background: var(--bg);
-      padding: 0 6px;
-      border-radius: 4px;
-      letter-spacing: .3px;
-      text-transform: uppercase;
-    }
-
     .zone.resize-mode {
       border-color: var(--amber);
-      box-shadow: 0 0 0 1px var(--amber), 0 0 20px rgba(210,153,34,.18);
-      cursor: nwse-resize;
+      box-shadow: 0 0 0 1px var(--amber);
     }
-
     .zone-header {
       position: absolute;
-      top: 0;
-      left: 0;
-      right: 0;
-      height: 28px;
-      display: flex;
-      align-items: center;
-      padding: 0 12px;
-      gap: 6px;
+      top: -13px; left: 10px;
+      display: flex; align-items: center;
     }
-
     .zone-lbl {
-      font-size: 11px;
-      font-weight: 600;
-      color: var(--muted);
-      padding: 1px 6px;
-      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .6px;
+      text-transform: uppercase;
+      padding: 2px 8px;
+      border-radius: 4px 4px 0 0;
+      white-space: nowrap;
+      border: 1px solid var(--zone-border-col, rgba(255,255,255,.14));
+      border-bottom: none;
     }
-
     .zone-lbl-input {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .6px;
+      text-transform: uppercase;
       background: transparent;
-      border: 1px solid var(--cyan);
-      border-radius: 4px;
+      border: 1px solid var(--zone-accent-col, var(--accent));
+      border-bottom: none;
+      border-radius: 4px 4px 0 0;
       outline: none;
       font-family: inherit;
-      font-size: 11px;
-      font-weight: 600;
       color: var(--text);
-      padding: 1px 6px;
-      width: 130px;
+      padding: 2px 8px;
+      width: 120px;
       caret-color: var(--accent);
     }
-
     .zone-resize-handle {
       position: absolute;
-      bottom: 0;
-      right: 0;
-      width: 22px;
-      height: 22px;
+      bottom: 6px; right: 6px;
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--zone-accent-col, var(--muted));
+      opacity: 0.35;
       cursor: nwse-resize;
       pointer-events: all;
-      border-radius: 0 0 10px 0;
-      background: linear-gradient(135deg, transparent 40%, rgba(6, 182, 212, .25) 40%);
-      transition: background .2s;
+      transition: opacity .15s, transform .15s;
     }
-
-    .zone:hover .zone-resize-handle {
-      background: linear-gradient(135deg, transparent 40%, rgba(6, 182, 212, .5) 40%);
-    }
-
-    .zone.focused .zone-resize-handle {
-      background: linear-gradient(135deg, transparent 40%, rgba(6, 182, 212, .7) 40%);
-    }
+    .zone:hover .zone-resize-handle { opacity: 0.65; transform: scale(1.2); }
+    .zone.focused .zone-resize-handle { opacity: 0.9; transform: scale(1.3); }
 
     /* ─── CONNECTOR ─── */
     .conn-path {
@@ -520,56 +496,51 @@
       position: fixed;
       bottom: 44px;
       left: 50%;
-      transform: translateX(-50%) translateY(6px);
+      transform: translateX(-50%) translateY(8px);
       background: var(--palette-bg);
       border: 1px solid var(--card-border);
-      border-radius: 12px;
-      padding: 10px 16px;
+      border-radius: 14px;
+      padding: 12px 14px;
       display: none;
-      gap: 10px;
-      align-items: center;
       z-index: 500;
-      box-shadow: 0 8px 40px rgba(0, 0, 0, .5);
+      box-shadow: 0 8px 40px rgba(0,0,0,.55);
       opacity: 0;
       transition: opacity .15s, transform .15s;
     }
-
     #palette.show {
-      display: flex;
+      display: block;
       opacity: 1;
       transform: translateX(-50%) translateY(0);
     }
-
-    .p-lbl {
-      font-size: 9px;
-      letter-spacing: 2px;
-      color: var(--dim);
-      text-transform: uppercase;
-      margin-right: 2px;
+    .pal-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 8px;
     }
-
     .psw {
-      width: 22px;
-      height: 22px;
+      width: 24px;
+      height: 24px;
       border-radius: 50%;
       cursor: pointer;
       border: 2px solid transparent;
-      transition: transform .12s, border-color .12s;
+      transition: transform .1s, border-color .1s, box-shadow .1s;
       position: relative;
+      box-shadow: 0 1px 4px rgba(0,0,0,.3);
     }
-
     .psw:hover {
-      transform: scale(1.35);
-      border-color: rgba(255, 255, 255, .7);
+      transform: scale(1.3);
+      border-color: rgba(255,255,255,.8);
+      box-shadow: 0 2px 8px rgba(0,0,0,.4);
     }
-
     .psw-k {
       position: absolute;
-      bottom: -15px;
+      bottom: -14px;
       left: 50%;
       transform: translateX(-50%);
       font-size: 8px;
       color: var(--dim);
+      font-family: 'SFMono-Regular', Consolas, monospace;
+      letter-spacing: 0;
     }
 
     /* ─── MOVE OVERLAY ─── */
@@ -875,7 +846,7 @@
       <div class="hint"><span class="hk">p</span>color</div>
       <div class="hint"><span class="hk">l</span>lens</div>
       <div class="hint"><span class="hk">s</span>sort</div>
-      <div class="hint"><span class="hk">u</span>undo</div>
+      <div class="hint"><span class="hk">^Z</span>undo</div>
       <div class="hint"><span class="hk">x</span>del</div>
     </div>
     <div id="toolbar">
@@ -911,12 +882,23 @@
   </div>
 
   <div id="palette">
-    <span class="p-lbl">COLOR</span>
-    <div class="psw" data-c="purple" style="background:#a259ff"><span class="psw-k">1</span></div>
-    <div class="psw" data-c="cyan" style="background:#1abcfe"><span class="psw-k">2</span></div>
-    <div class="psw" data-c="green" style="background:#0acf83"><span class="psw-k">3</span></div>
-    <div class="psw" data-c="amber" style="background:#ff9f43"><span class="psw-k">4</span></div>
-    <div class="psw" data-c="pink" style="background:#f24e1e"><span class="psw-k">5</span></div>
+    <div class="pal-grid">
+      <div class="psw" data-c="purple" style="background:#a259ff"><span class="psw-k">1</span></div>
+      <div class="psw" data-c="blue"   style="background:#2979ff"><span class="psw-k">2</span></div>
+      <div class="psw" data-c="cyan"   style="background:#00b8d4"><span class="psw-k">3</span></div>
+      <div class="psw" data-c="teal"   style="background:#00bfa5"><span class="psw-k">4</span></div>
+      <div class="psw" data-c="green"  style="background:#00c853"><span class="psw-k">5</span></div>
+      <div class="psw" data-c="lime"   style="background:#76d275"><span class="psw-k">6</span></div>
+      <div class="psw" data-c="yellow" style="background:#ffd740"><span class="psw-k">7</span></div>
+      <div class="psw" data-c="amber"  style="background:#ff9100"><span class="psw-k">8</span></div>
+      <div class="psw" data-c="orange" style="background:#ff6d00"><span class="psw-k">9</span></div>
+      <div class="psw" data-c="red"    style="background:#ff1744"><span class="psw-k">0</span></div>
+      <div class="psw" data-c="rose"   style="background:#f50057"><span class="psw-k">q</span></div>
+      <div class="psw" data-c="pink"   style="background:#e040fb"><span class="psw-k">w</span></div>
+      <div class="psw" data-c="violet" style="background:#7c4dff"><span class="psw-k">e</span></div>
+      <div class="psw" data-c="indigo" style="background:#3d5afe"><span class="psw-k">r</span></div>
+      <div class="psw" data-c="slate"  style="background:#78909c"><span class="psw-k">t</span></div>
+    </div>
   </div>
 
   <div id="cmdline">
@@ -928,8 +910,28 @@
   <script>
     const App = (() => {
       // ─── CONSTANTS ────────────────────────────────────────────────────────
-      const COLOR_HEX = { purple: '#a259ff', cyan: '#1abcfe', green: '#0acf83', amber: '#ff9f43', pink: '#f24e1e' };
-      const COLOR_KEYS = { '1': 'purple', '2': 'cyan', '3': 'green', '4': 'amber', '5': 'pink' };
+      const COLOR_HEX = {
+        purple:  '#a259ff',
+        blue:    '#2979ff',
+        cyan:    '#00b8d4',
+        teal:    '#00bfa5',
+        green:   '#00c853',
+        lime:    '#76d275',
+        yellow:  '#ffd740',
+        amber:   '#ff9100',
+        orange:  '#ff6d00',
+        red:     '#ff1744',
+        rose:    '#f50057',
+        pink:    '#e040fb',
+        violet:  '#7c4dff',
+        indigo:  '#3d5afe',
+        slate:   '#78909c',
+      };
+      const COLOR_KEYS = {
+        '1':'purple','2':'blue','3':'cyan','4':'teal','5':'green',
+        '6':'lime','7':'yellow','8':'amber','9':'orange','0':'red',
+        'q':'rose','w':'pink','e':'violet','r':'indigo','t':'slate',
+      };
       // Grid: digit → [col, row] (0-indexed from top-left)
       // Standard numpad layout: 7=TL 8=TC 9=TR / 4=ML 5=MC 6=MR / 1=BL 2=BC 3=BR
       const GRID_POS = { 7: [0, 0], 8: [1, 0], 9: [2, 0], 4: [0, 1], 5: [1, 1], 6: [2, 1], 1: [0, 2], 2: [1, 2], 3: [2, 2] };
@@ -1025,11 +1027,14 @@
       // ─── TRANSFORM ────────────────────────────────────────────────────────
       // board要素にパン・ズーム変換を適用し、グリッドドットをズームに追従させる。
       const zoomDisplay = document.getElementById('zoom-display');
-      const GRID_BASE = 24; // グリッド基準サイズ(px)
+      const GRID_BASE = 24; // グリッド基準サイズ(px) — SNAP must equal this
       function applyXform() {
         board.style.transform = `translate(${S.pan.x}px,${S.pan.y}px) scale(${S.zoom})`;
         const gs = GRID_BASE * S.zoom;
         boardWrap.style.setProperty('--grid-size', gs + 'px');
+        // track pan so grid dots align to board coordinates
+        boardWrap.style.setProperty('--grid-ox', (S.pan.x % gs) + 'px');
+        boardWrap.style.setProperty('--grid-oy', (S.pan.y % gs) + 'px');
         zoomDisplay.textContent = Math.round(S.zoom * 100) + '%';
         updateMinimap();
       }
@@ -1164,11 +1169,13 @@
         el.classList.toggle('focused', focused);
       }
 
-      // ゾーン要素の枠線色とフォーカス時のシャドウを設定する。
+      // ゾーンのアクセントカラーをCSSカスタムプロパティで設定する。
       function applyZoneBorder(el, z, focused) {
         const hex = COLOR_HEX[z.color || 'cyan'];
-        el.style.borderColor = hex;
-        el.style.boxShadow = focused ? `0 0 0 1px ${hex}, 0 0 20px ${hex}44` : '';
+        el.style.setProperty('--zone-accent-col', hex);
+        el.style.setProperty('--zone-border-col', hex + '55');
+        el.style.setProperty('--zone-fill', hex + '0d');
+        el.classList.toggle('focused', focused);
       }
 
       function focus(kind, id) {
@@ -1188,8 +1195,6 @@
           el.classList.remove('focused');
           if (el.classList.contains('idea')) {
             el.style.transform = '';
-          } else if (el.classList.contains('zone')) {
-            el.style.boxShadow = '';           // keep borderColor set by renderZone
           }
         });
         S.focused = null;
@@ -1206,7 +1211,7 @@
       function createIdeaAt(x, y) {
         pushHistory();
         const id = S.nextId++;
-        S.ideas[id] = { id, x, y, text: '', color: 'purple' };
+        S.ideas[id] = { id, x: snapVal(x), y: snapVal(y), text: '', color: 'purple' };
         renderIdea(id, true);
         focus('idea', id);
         setMode('edit');
@@ -1347,9 +1352,9 @@
         applyZoneBorder(el, z, isFocusedZ);
         el.innerHTML = `
       <div class="zone-header">
-        <span class="zone-lbl" style="color:${zhex}cc;background:${zhex}18">${esc(z.label)}</span>
+        <span class="zone-lbl" style="color:${zhex};background:${zhex}18">${esc(z.label) || 'ZONE'}</span>
       </div>
-      <div class="zone-resize-handle" style="background:linear-gradient(135deg,transparent 40%,${zhex}44 40%)"></div>`;
+      <div class="zone-resize-handle"></div>`;
         // Resize handle
         const handle = el.querySelector('.zone-resize-handle');
         handle.addEventListener('mousedown', e => {
@@ -1377,9 +1382,9 @@
         el.innerHTML = `
       <div class="zone-header">
         <input class="zone-lbl-input" value="${esc(z.label)}" maxlength="30"
-          style="background:${zehex}1a;border-color:${zehex};color:${zehex};caret-color:${zehex}">
+          style="color:${zehex};caret-color:${zehex}">
       </div>
-      <div class="zone-resize-handle" style="background:linear-gradient(135deg,transparent 40%,${zehex}44 40%)"></div>`;
+      <div class="zone-resize-handle"></div>`;
         const inp = el.querySelector('.zone-lbl-input');
         inp.focus(); inp.select();
         inp.addEventListener('input', () => { z.label = inp.value; });
@@ -1520,7 +1525,7 @@
       // ─── DRAG ─────────────────────────────────────────────────────────────
       // 要素にドラッグ操作を追加する。マウスダウン→移動でオブジェクト座標を更新し保存する。
       // ─── SNAP & ALIGNMENT GUIDES ─────────────────────────────────────────
-      const SNAP = 20;
+      const SNAP = 24; // must equal GRID_BASE so dragged cards land on grid dots
       let snapEnabled = true;
       function snapVal(v) { return Math.round(v / SNAP) * SNAP; }
 
@@ -1923,11 +1928,34 @@
           applyXform(); save(); return;
         }
 
-        // ── Arrow key movement of selected object ──
+        // ── Alt+Arrow: create connected idea in that direction ──
+        if (e.altKey && S.focused?.kind === 'idea' && ['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)) {
+          e.preventDefault();
+          const src = S.ideas[S.focused.id];
+          if (src) {
+            pushHistory();
+            const srcEl = getEl('idea', src.id);
+            const sw = srcEl ? srcEl.offsetWidth : 200, sh = srcEl ? srcEl.offsetHeight : 80;
+            const offsets = { ArrowRight:[sw+60,0], ArrowLeft:[-(200+60),0], ArrowDown:[0,sh+48], ArrowUp:[0,-(80+48)] };
+            const [dx, dy] = offsets[e.key];
+            const newId = S.nextId++;
+            S.ideas[newId] = { id: newId, x: snapVal(src.x + dx), y: snapVal(src.y + dy), text: '', color: src.color || 'purple' };
+            S.connectors.push({ id: `c${S.nextId++}`, from: { kind:'idea', id: src.id }, to: { kind:'idea', id: newId }, type: 'arrow' });
+            buildArrowMarkers();
+            renderIdea(newId, true);
+            redrawConnectors();
+            focus('idea', newId);
+            setMode('edit');
+            startEdit(newId);
+            save(); updateStat();
+          }
+          return;
+        }
+
+        // ── Arrow key movement / navigation ──
         if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
           e.preventDefault();
           if (e.shiftKey && S.focused) {
-            // Move object with Shift+Arrow
             moveObjByKey(e.key);
           } else {
             navigateFocus(e.key);
