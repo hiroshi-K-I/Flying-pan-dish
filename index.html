@@ -384,17 +384,24 @@
     }
     .zone-resize-handle {
       position: absolute;
-      bottom: 6px; right: 6px;
-      width: 8px; height: 8px;
-      border-radius: 50%;
-      background: var(--zone-accent-col, var(--muted));
-      opacity: 0.35;
+      bottom: 4px; right: 4px;
+      width: 16px; height: 16px;
       cursor: nwse-resize;
       pointer-events: all;
-      transition: opacity .15s, transform .15s;
+      opacity: 0.4;
+      transition: opacity .15s;
+      display: flex; align-items: flex-end; justify-content: flex-end;
     }
-    .zone:hover .zone-resize-handle { opacity: 0.65; transform: scale(1.2); }
-    .zone.focused .zone-resize-handle { opacity: 0.9; transform: scale(1.3); }
+    .zone-resize-handle::before {
+      content: '';
+      display: block;
+      width: 10px; height: 10px;
+      border-right: 2px solid var(--zone-accent-col, var(--muted));
+      border-bottom: 2px solid var(--zone-accent-col, var(--muted));
+      border-radius: 0 0 3px 0;
+    }
+    .zone:hover .zone-resize-handle { opacity: 0.75; }
+    .zone.focused .zone-resize-handle { opacity: 1; }
 
     /* ─── CONNECTOR ─── */
     .conn-path {
@@ -1362,7 +1369,7 @@
         applyZoneBorder(el, z, isFocusedZ);
         el.innerHTML = `
       <div class="zone-header">
-        <span class="zone-lbl" style="color:${zhex};background:${zhex}18">${esc(z.label) || 'ZONE'}</span>
+        <span class="zone-lbl" style="color:${zhex};border-color:${zhex}66">${esc(z.label) || 'ZONE'}</span>
       </div>
       <div class="zone-resize-handle"></div>`;
         if (animate) { el.classList.add('spring-in'); setTimeout(() => el.classList.remove('spring-in'), 400); }
@@ -1944,49 +1951,6 @@
           applyXform(); save(); return;
         }
 
-        // ── Alt+Arrow: connect focused idea to nearest existing idea in that direction ──
-        if (e.altKey && S.focused?.kind === 'idea' && ['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)) {
-          e.preventDefault();
-          const src = S.ideas[S.focused.id];
-          if (src) {
-            const srcEl = getEl('idea', src.id);
-            const srcCX = src.x + (srcEl ? srcEl.offsetWidth : 200) / 2;
-            const srcCY = src.y + (srcEl ? srcEl.offsetHeight : 80) / 2;
-            const dirVec = { ArrowRight:[1,0], ArrowLeft:[-1,0], ArrowDown:[0,1], ArrowUp:[0,-1] }[e.key];
-            let best = null, bestScore = -Infinity;
-            Object.values(S.ideas).forEach(other => {
-              if (other.id === src.id) return;
-              const oEl = getEl('idea', other.id);
-              if (!oEl || oEl.style.display === 'none') return;
-              const oCX = other.x + oEl.offsetWidth / 2, oCY = other.y + oEl.offsetHeight / 2;
-              const dx = oCX - srcCX, dy = oCY - srcCY;
-              const dot = dx * dirVec[0] + dy * dirVec[1];
-              if (dot <= 20) return; // must be clearly in that direction
-              const dist = Math.sqrt(dx*dx + dy*dy);
-              const cos = dot / dist;
-              if (cos < 0.5) return; // within 60° cone
-              const score = cos * 1000 - dist; // prefer aligned over close
-              if (score > bestScore) { bestScore = score; best = other; }
-            });
-            if (best) {
-              const fromEp = { kind:'idea', id: src.id }, toEp = { kind:'idea', id: best.id };
-              const already = S.connectors.find(c =>
-                (epEqual(c.from, fromEp) && epEqual(c.to, toEp)) ||
-                (epEqual(c.from, toEp) && epEqual(c.to, fromEp)));
-              if (!already) {
-                pushHistory();
-                S.connectors.push({ id: `c${S.nextId++}`, from: fromEp, to: toEp, type: 'arrow' });
-                buildArrowMarkers(); redrawConnectors(); save();
-                toast('コネクタを追加しました');
-              }
-              focus('idea', best.id);
-            } else {
-              toast('その方向にアイデアがありません');
-            }
-          }
-          return;
-        }
-
         // ── Arrow key movement / navigation ──
         if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
           e.preventDefault();
@@ -2357,8 +2321,8 @@
         svgOverlay.querySelectorAll('.conn-preview').forEach(e => e.remove());
         if (S.cmdMode !== 'c' || !S.connectFrom || !S.focused) return;
         if (epEqual(S.connectFrom, S.focused)) return;
-        const a = objScreenCenter(S.connectFrom);
-        const b = objScreenCenter(S.focused);
+        const a = (() => { const r = getObjRect(S.connectFrom); return r ? b2s(r.cx, r.cy) : null; })();
+        const b = (() => { const r = getObjRect(S.focused); return r ? b2s(r.cx, r.cy) : null; })();
         if (!a || !b) return;
         const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
         g.classList.add('conn-preview');
@@ -2434,8 +2398,9 @@
         objs.forEach((obj, i) => {
           const h = i < chars.length ? chars[i] : chars[Math.floor(i / chars.length) - 1] + chars[i % chars.length];
           hintMap[h] = obj;
-          const sc = objScreenCenter(obj);
-          if (!sc) return;
+          const rect = getObjRect(obj);
+          if (!rect) return;
+          const sc = b2s(rect.cx, rect.cy);
           const div = document.createElement('div');
           div.className = 'hint-label';
           div.dataset.hint = h;
