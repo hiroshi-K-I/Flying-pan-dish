@@ -1778,7 +1778,7 @@
         if (S.mode === 'edit') return;
 
         if (e.key === 'Escape') {
-          closePalette(); exitConnectMode(); closeHintSelect(); cancelBookBuild(); cancelMoveSelect(); exitLensMode();
+          closePalette(); exitConnectMode(); closeHintSelect(); cancelMoveSelect(); exitLensMode();
           if (S.cmdMode === 'bridge') { S.connectFrom = null; }
           S.cmdBuf = ''; S.cmdMode = null;
           if (S.mode === 'resize') setMode('select');
@@ -1808,7 +1808,7 @@
         if (S.cmdMode === 'move') {
           if (e.key === 'Escape') { cancelMoveSelect(); return; }
           if (e.key === 'Enter') { e.preventDefault(); finalizeMoveSelect(); return; }
-          if (e.key === 'f' || e.key === 'm') { e.preventDefault(); openHintSelect(false, false, true); return; }
+          if (e.key === 'f' || e.key === 'm') { e.preventDefault(); openHintSelect(false, true); return; }
           if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
             e.preventDefault();
             const step = e.shiftKey ? 50 : 20;
@@ -1818,23 +1818,9 @@
           return;
         }
 
-        if (S.cmdMode === 'book') {
-          if (e.key === 'Escape') { cancelBookBuild(); return; }
-          if (e.key === 'Enter') {
-            e.preventDefault();
-            if (S.bookSelection.length > 0) {
-              const sel = [...S.bookSelection];
-              cancelBookBuild();
-              createBook(sel);
-            } else { cancelBookBuild(); }
-            return;
-          }
-          if (e.key === 'f') { e.preventDefault(); openHintSelect(false, true); return; }
-          return;
-        }
         if (S.cmdMode === 'bridge') {
           if (e.key === 'Escape') { S.connectFrom = null; S.cmdMode = null; S.cmdBuf = ''; updateCmd(); return; }
-          if (e.key === 'f') { e.preventDefault(); openHintSelect(false, false, false, true); return; }
+          if (e.key === 'f') { e.preventDefault(); openHintSelect(false, false, true); return; }
           return;
         }
 
@@ -1927,12 +1913,6 @@
         switch (e.key) {
           case 'i': e.preventDefault(); createIdea(); break;
           case 'z': e.preventDefault(); createZone(); break;
-          case 'b':
-            e.preventDefault();
-            S.cmdMode = 'book'; S.bookSelection = [];
-            toast('ブック作成: f でアイデアを選択  Enter で確定  Esc でキャンセル');
-            openHintSelect(false, true);
-            break;
           case 'c':
             e.preventDefault();
             startConnectMode();
@@ -1950,11 +1930,7 @@
             e.preventDefault();
             S.cmdMode = 'move'; S.moveSelection = [];
             toast('移動: f でオブジェクトを選択  矢印で移動  Shift+矢印で大きく移動  Enter:確定  Esc:終了');
-            openHintSelect(false, false, true);
-            break;
-          case 'u':
-            e.preventDefault();
-            unbookOrDetach();
+            openHintSelect(false, true);
             break;
           case 'p': e.preventDefault(); openPalette(); break;
           case 'l':
@@ -1975,7 +1951,7 @@
             if (!S.focused) { toast('先に接続元を選択してください'); break; }
             S.connectFrom = { ...S.focused };
             S.cmdMode = 'bridge'; S.cmdBuf = 'g';
-            openHintSelect(false, false, false, true);
+            openHintSelect(false, false, true);
             break;
           case 's':
             e.preventDefault();
@@ -1998,33 +1974,10 @@
           case 'Enter':
             if (S.focused?.kind === 'idea') { setMode('edit'); startEdit(S.focused.id); }
             if (S.focused?.kind === 'zone') { setMode('edit'); startZoneEdit(S.focused.id); }
-            if (S.focused?.kind === 'book') { toggleBook(S.focused.id); }
             break;
           case 'x': case 'Delete': e.preventDefault(); deleteSelected(); break;
         }
       });
-
-      function toggleBook(id) {
-        const bk = S.books.find(b => b.id === id);
-        if (!bk) return;
-        bk.expanded = !bk.expanded;
-        renderBook(id);
-        // Re-apply focus class after innerHTML replacement
-        const el = document.getElementById(`book-${id}`);
-        if (el) el.classList.add('focused');
-        S.focused = { kind: 'book', id };
-        S.lastFocused = { kind: 'book', id };
-        updateCmd();
-        save();
-      }
-
-      function cancelBookBuild() {
-        if (S.cmdMode !== 'book') return;
-        document.querySelectorAll('.book-selected').forEach(el => el.classList.remove('book-selected'));
-        S.bookSelection = [];
-        S.cmdMode = null; S.cmdBuf = '';
-        updateCmd();
-      }
 
       // ─── MOVE SELECTION ───────────────────────────────────────────────────
       function cancelMoveSelect() {
@@ -2056,40 +2009,11 @@
         if (count > 0) toast(`${count}件を移動しました`);
       }
 
-      // ─── UNBOOK / DETACH ─────────────────────────────────────────────────
-      function unbookOrDetach() {
-        if (!S.focused) return;
-        const { kind, id } = S.focused;
-        if (kind === 'book') {
-          // Dissolve book: release children back to board
-          const bk = S.books.find(b => b.id === id);
-          if (!bk) return;
-          const el = getEl('book', id);
-          if (el) { el.classList.add('fade-out'); setTimeout(() => el.remove(), 200); }
-          S.books = S.books.filter(b => b.id !== id);
-          S.focused = null; updateStat(); updateCmd(); save();
-          toast('ブックを解除しました — アイデアをボードに戻しました');
-        } else if (kind === 'idea') {
-          // Remove this idea from any book it belongs to
-          let removed = false;
-          S.books.forEach(bk => {
-            if (bk.children.includes(id)) {
-              bk.children = bk.children.filter(c => c !== id);
-              renderBook(bk.id);
-              removed = true;
-            }
-          });
-          if (removed) { save(); toast(`#${id} をブックから除外しました`); }
-          else toast('このアイデアはブックに所属していません');
-        }
-      }
-
       // ─── VIEWPORT ─────────────────────────────────────────────────────────
       function fitAll() {
         const all = [];
         Object.values(S.ideas).forEach(o => { const el = getEl('idea', o.id); if (el && el.style.display !== 'none') all.push({ x: o.x, y: o.y, w: el.offsetWidth || 160, h: el.offsetHeight || 80 }); });
         S.zones.forEach(z => all.push({ x: z.x, y: z.y, w: z.w, h: z.h }));
-        S.books.forEach(b => { const el = getEl('book', b.id); if (el) all.push({ x: b.x, y: b.y, w: el.offsetWidth || 180, h: el.offsetHeight || 80 }); });
         if (!all.length) return;
         const pad = 60;
         const minX = Math.min(...all.map(o => o.x)) - pad;
@@ -2145,7 +2069,6 @@
         const all = [];
         Object.values(S.ideas).forEach(o => all.push({ kind: 'idea', id: o.id, x: o.x, y: o.y }));
         S.zones.forEach(z => all.push({ kind: 'zone', id: z.id, x: z.x, y: z.y }));
-        S.books.forEach(b => all.push({ kind: 'book', id: b.id, x: b.x, y: b.y }));
         if (!all.length) return;
         if (!S.focused) { const f = all[0]; focus(f.kind, f.id); return; }
         const cur = all.find(a => a.kind === S.focused.kind && a.id === S.focused.id);
@@ -2202,7 +2125,6 @@
       function getObjData(ep) {
         if (ep.kind === 'idea') return S.ideas[ep.id];
         if (ep.kind === 'zone') return S.zones.find(z => z.id === ep.id);
-        if (ep.kind === 'book') return S.books.find(b => b.id === ep.id);
         return null;
       }
 
@@ -2233,12 +2155,11 @@
       function applyLens() {
         if (!S.lensMode || !S.focused) { exitLensMode(); return; }
         const visible = getNeighborKeys(S.focused, S.lensDepth);
-        document.querySelectorAll('.idea, .zone, .book').forEach(el => {
+        document.querySelectorAll('.idea, .zone').forEach(el => {
           if (el.style.display === 'none') return;
           let key = null;
           if (el.classList.contains('idea')) key = `idea:${el.id.replace('idea-', '')}`;
           else if (el.classList.contains('zone')) key = `zone:${el.id.replace('zone-', '')}`;
-          else if (el.classList.contains('book')) key = `book:${el.id.replace('book-', '')}`;
           if (key) el.classList.toggle('lens-dim', !visible.has(key));
         });
       }
@@ -2269,14 +2190,6 @@
             w: el.offsetWidth || 160, h: el.offsetHeight || 80, vx: 0, vy: 0, fx: 0, fy: 0
           });
         });
-        S.books.forEach(b => {
-          const el = getEl('book', b.id);
-          if (!el) return;
-          nodes.push({
-            id: b.id, kind: 'book', x: b.x + (el.offsetWidth || 180) / 2, y: b.y + (el.offsetHeight || 80) / 2,
-            w: el.offsetWidth || 180, h: el.offsetHeight || 80, vx: 0, vy: 0, fx: 0, fy: 0
-          });
-        });
         if (nodes.length < 2) { toast('アイデアが少なすぎます'); return; }
 
         const nodeMap = {};
@@ -2301,7 +2214,7 @@
         // Capture start/end positions (center → top-left)
         const startPos = {}, endPos = {};
         nodes.forEach(n => {
-          const obj = n.kind === 'idea' ? S.ideas[n.id] : S.books.find(b => b.id === n.id);
+          const obj = S.ideas[n.id];
           if (!obj) return;
           const key = `${n.kind}:${n.id}`;
           startPos[key] = { x: obj.x, y: obj.y };
@@ -2316,7 +2229,7 @@
             const key = `${n.kind}:${n.id}`;
             const s = startPos[key], e = endPos[key]; if (!s || !e) return;
             const nx = s.x + (e.x - s.x) * ease, ny = s.y + (e.y - s.y) * ease;
-            const obj = n.kind === 'idea' ? S.ideas[n.id] : S.books.find(b => b.id === n.id);
+            const obj = S.ideas[n.id];
             if (!obj) return;
             obj.x = nx; obj.y = ny;
             const el = getEl(n.kind, n.id); if (el) { el.style.left = nx + 'px'; el.style.top = ny + 'px'; }
@@ -2400,17 +2313,10 @@
       }
 
       // ─── HINT SELECT (Vimium-style) ───────────────────────────────────────
-      function openHintSelect(returnToConnect = false, bookMode = false, moveMode = false, bridgeMode = false) {
+      function openHintSelect(returnToConnect = false, moveMode = false, bridgeMode = false) {
         closeHintSelect();
         const objs = [];
-        if (bookMode) {
-          // Book build: only visible ideas not yet selected
-          Object.values(S.ideas).forEach(o => {
-            const el = document.getElementById(`idea-${o.id}`);
-            if (el && el.style.display !== 'none' && !S.bookSelection.includes(o.id))
-              objs.push({ kind: 'idea', id: o.id });
-          });
-        } else if (moveMode) {
+        if (moveMode) {
           // Move: all objects not yet in move selection
           const inSel = ({ kind, id }) => S.moveSelection.some(s => s.kind === kind && s.id === id);
           Object.values(S.ideas).forEach(o => {
@@ -2422,10 +2328,6 @@
             const el = document.getElementById(`zone-${z.id}`);
             if (el && !inSel({ kind: 'zone', id: z.id })) objs.push({ kind: 'zone', id: z.id });
           });
-          S.books.forEach(b => {
-            const el = document.getElementById(`book-${b.id}`);
-            if (el && !inSel({ kind: 'book', id: b.id })) objs.push({ kind: 'book', id: b.id });
-          });
         } else {
           Object.values(S.ideas).forEach(o => {
             const el = document.getElementById(`idea-${o.id}`);
@@ -2435,13 +2337,8 @@
             const el = document.getElementById(`zone-${z.id}`);
             if (el) objs.push({ kind: 'zone', id: z.id });
           });
-          S.books.forEach(b => {
-            const el = document.getElementById(`book-${b.id}`);
-            if (el) objs.push({ kind: 'book', id: b.id });
-          });
         }
         if (!objs.length) {
-          if (bookMode && S.bookSelection.length > 0) toast(`${S.bookSelection.length}件選択済 — Enter で確定`);
           if (moveMode && S.moveSelection.length > 0) toast(`${S.moveSelection.length}件選択済 — 矢印キーで移動`);
           return;
         }
@@ -2463,7 +2360,6 @@
         S.hintMap = hintMap;
         S.hintBuf = '';
         S.hintReturnToConnect = returnToConnect;
-        S.hintReturnToBook = bookMode;
         S.hintReturnToMove = moveMode;
         S.hintReturnToBridge = bridgeMode;
         S.cmdMode = 'hint';
@@ -2472,15 +2368,13 @@
 
       function closeHintSelect() {
         document.querySelectorAll('.hint-label').forEach(e => e.remove());
-        const wasBook = S.hintReturnToBook;
         const wasMove = S.hintReturnToMove;
         S.hintMap = null; S.hintBuf = '';
-        S.hintReturnToConnect = false; S.hintReturnToBook = false;
+        S.hintReturnToConnect = false;
         S.hintReturnToMove = false; S.hintReturnToBridge = false;
         if (S.cmdMode === 'hint') {
           // Restore the parent mode if we were in a multi-select flow
           if (wasMove) S.cmdMode = 'move';
-          else if (wasBook) S.cmdMode = 'book';
           else S.cmdMode = null;
           updateCmd();
         }
@@ -2499,19 +2393,11 @@
           if (S.hintMap[S.hintBuf]) {
             const target = S.hintMap[S.hintBuf];
             const returnToConnect = S.hintReturnToConnect;
-            const returnToBook = S.hintReturnToBook;
             const returnToMove = S.hintReturnToMove;
             const returnToBridge = S.hintReturnToBridge;
             const savedFrom = S.connectFrom ? { ...S.connectFrom } : null;
             closeHintSelect();
-            if (returnToBook) {
-              if (!S.bookSelection.includes(target.id)) S.bookSelection.push(target.id);
-              const tEl = document.getElementById(`idea-${target.id}`);
-              if (tEl) tEl.classList.add('book-selected');
-              S.cmdMode = 'book';
-              updateCmd();
-              requestAnimationFrame(() => openHintSelect(false, true));
-            } else if (returnToMove) {
+            if (returnToMove) {
               const ep = { kind: target.kind, id: target.id };
               if (!S.moveSelection.some(s => s.kind === ep.kind && s.id === ep.id)) {
                 S.moveSelection.push(ep);
@@ -2520,7 +2406,7 @@
               }
               S.cmdMode = 'move';
               updateCmd();
-              requestAnimationFrame(() => openHintSelect(false, false, true));
+              requestAnimationFrame(() => openHintSelect(false, true));
             } else if (returnToBridge) {
               S.connectFrom = null; S.cmdMode = null; S.cmdBuf = '';
               if (savedFrom) createBridgeIdea(savedFrom, { kind: target.kind, id: target.id });
@@ -2565,9 +2451,6 @@
         } else if (lf.kind === 'zone') {
           const z = S.zones.find(z => z.id === lf.id); if (!z) return;
           z.color = color; renderZone(lf.id); focus('zone', lf.id);
-        } else if (lf.kind === 'book') {
-          const bk = S.books.find(b => b.id === lf.id); if (!bk) return;
-          bk.color = color; renderBook(lf.id); focus('book', lf.id);
         }
         buildArrowMarkers(); redrawConnectors(); save();
       }
@@ -2588,14 +2471,9 @@
         if (kind === 'idea') {
           delete S.ideas[id];
           rmConns();
-          S.books.forEach(b => { b.children = b.children.filter(c => c !== id); });
-          S.books.forEach(b => renderBook(b.id));
           redrawConnectors();
         } else if (kind === 'zone') {
           S.zones = S.zones.filter(z => z.id !== id);
-          rmConns(); redrawConnectors();
-        } else if (kind === 'book') {
-          S.books = S.books.filter(b => b.id !== id);
           rmConns(); redrawConnectors();
         }
         S.focused = null;
@@ -2609,14 +2487,10 @@
         let txt = '';
         if (S.cmdMode === 'c' && S.connectFrom)
           txt = `接続元: ${endpointLabel(S.connectFrom)} → 矢印キー/f で対象選択  Enter:ライン  Shift+Enter:アロー  Esc:中止`;
-        else if (S.cmdMode === 'hint' && S.hintReturnToBook)
-          txt = `ブック追加 — ${S.bookSelection.length}件選択済  [${S.hintBuf || '_'}]  Enter:確定  Esc:キャンセル`;
         else if (S.cmdMode === 'hint' && S.hintReturnToMove)
           txt = `移動対象を選択 — ${S.moveSelection.length}件選択済  [${S.hintBuf || '_'}]  矢印:移動  Esc:終了`;
         else if (S.cmdMode === 'hint')
           txt = `ジャンプ [${S.hintBuf || '_'}] — アルファベットを入力  Esc:キャンセル`;
-        else if (S.cmdMode === 'book')
-          txt = `ブック作成: ${S.bookSelection.length}件選択済  f:追加  Enter:確定  Esc:キャンセル`;
         else if (S.cmdMode === 'move')
           txt = `移動モード: ${S.moveSelection.length}件選択済  f:追加  ↑↓←→:移動  Shift+↑↓:大移動  Enter:確定  Esc:終了`;
         else if (S.cmdBuf) txt = S.cmdBuf;
@@ -2625,16 +2499,15 @@
         else if (S.cmdMode === 'v') txt = 'VIEW: Enter=全体  1-9=テンキー位置  Esc:キャンセル';
         else if (S.cmdMode === 'bridge') txt = `架け橋: 接続先を選択 — f:選択  Esc:キャンセル`;
         else if (S.lensMode) txt = `フォーカスレンズ (深さ:${S.lensDepth}) — 1〜3:深さ変更  L/Esc:終了`;
-        else if (S.focused) { const { kind } = S.focused; txt = `${kind} 選択中 — Enter:編集  c:接続  g:架け橋  l:レンズ  f:別を選択  p:カラー  u:解除  x:削除`; }
+        else if (S.focused) { const { kind } = S.focused; txt = `${kind} 選択中 — Enter:編集  c:接続  g:架け橋  l:レンズ  f:別を選択  p:カラー  x:削除`; }
         cmdBufEl.textContent = txt;
       }
       // ヘッダーのアイデア数・ゾーン数などの統計表示を更新する。
       function updateStat() {
-        const ni = Object.keys(S.ideas).length, nc = S.connectors.length, nz = S.zones.length, nb = S.books.length;
+        const ni = Object.keys(S.ideas).length, nc = S.connectors.length, nz = S.zones.length;
         let s = `${ni} idea${ni !== 1 ? 's' : ''}`;
         if (nc) s += ` · ${nc} conn`;
         if (nz) s += ` · ${nz} zone${nz !== 1 ? 's' : ''}`;
-        if (nb) s += ` · ${nb} book${nb !== 1 ? 's' : ''}`;
         cmdStat.textContent = s;
       }
 
@@ -2654,7 +2527,7 @@
         saveTimer = setTimeout(() => {
           try {
             localStorage.setItem('ideaboard_v4', JSON.stringify({
-              ideas: S.ideas, connectors: S.connectors, zones: S.zones, books: S.books,
+              ideas: S.ideas, connectors: S.connectors, zones: S.zones,
               nextId: S.nextId, pan: S.pan, zoom: S.zoom, theme: S.theme
             }));
           } catch (e) { }
@@ -2669,7 +2542,7 @@
           const d = JSON.parse(raw);
           Object.assign(S, {
             ideas: d.ideas || {}, connectors: d.connectors || [],
-            zones: d.zones || [], books: d.books || [],
+            zones: d.zones || [],
             nextId: d.nextId || 1, pan: d.pan || S.pan, zoom: d.zoom || 1, theme: d.theme || 'dark'
           });
           // normalize idea ids to numbers
@@ -2690,7 +2563,6 @@
         objLayer.innerHTML = ''; zonesLayer.innerHTML = '';
         S.zones.forEach(z => renderZone(z.id));
         Object.values(S.ideas).forEach(o => renderIdea(o.id));
-        S.books.forEach(b => renderBook(b.id));
         buildArrowMarkers();
         redrawConnectors();
         applyXform(); updateStat();
@@ -2702,7 +2574,7 @@
       // アプリの全状態（メモ・コネクター・ゾーン・設定）をJSONファイルとしてダウンロードする。
       function exportJSON() {
         const data = {
-          ideas: S.ideas, connectors: S.connectors, zones: S.zones, books: S.books,
+          ideas: S.ideas, connectors: S.connectors, zones: S.zones,
           nextId: S.nextId,
           meta: { exported: new Date().toISOString(), version: 4 }
         };
@@ -2723,7 +2595,7 @@
             const d = JSON.parse(e.target.result);
             Object.assign(S, {
               ideas: d.ideas || {}, connectors: d.connectors || [],
-              zones: d.zones || [], books: d.books || [],
+              zones: d.zones || [],
               nextId: d.nextId || 1
             });
             const fixed = {};
