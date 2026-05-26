@@ -611,14 +611,6 @@
       outline-offset: 3px;
     }
 
-    /* ─── FOCUS LENS ─── */
-    .lens-dim {
-      opacity: 0.06 !important;
-      filter: grayscale(1) !important;
-      transition: opacity 0.3s, filter 0.3s;
-      pointer-events: none !important;
-    }
-
     /* ─── CONNECT SOURCE ─── */
     .connect-source {
       animation: connectPulse .9s ease-in-out infinite;
@@ -784,6 +776,40 @@
     }
 
 
+    /* ─── LAYER CONTROL ─── */
+    #layer-ctrl {
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      padding-left: 8px;
+      border-left: 1px solid var(--card-border);
+      flex-shrink: 0;
+    }
+    #layer-name-lbl {
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--text);
+      min-width: 52px;
+      text-align: center;
+      white-space: nowrap;
+    }
+    .layer-nav-btn {
+      padding: 2px 7px !important;
+      font-size: 15px !important;
+      line-height: 18px !important;
+      color: var(--muted) !important;
+    }
+    #layer-opacity-btn {
+      font-size: 13px !important;
+      padding: 2px 7px !important;
+      line-height: 18px !important;
+      min-width: 30px;
+      text-align: center;
+    }
+    .layer-opacity-opaque { color: var(--text) !important; }
+    .layer-opacity-semi    { color: var(--muted) !important; }
+    .layer-opacity-transparent { color: var(--dim) !important; }
+
     /* ─── TOAST ─── */
     .toast {
       position: fixed;
@@ -844,12 +870,16 @@
       <div class="hint"><span class="hk">c</span>connect</div>
       <div class="hint"><span class="hk">z</span>zone</div>
       <div class="hint"><span class="hk">p</span>color</div>
-      <div class="hint"><span class="hk">l</span>lens</div>
       <div class="hint"><span class="hk">s</span>sort</div>
       <div class="hint"><span class="hk">⇧click</span>複数選択</div>
-      <div class="hint"><span class="hk">⇧C</span>色集合</div>
       <div class="hint"><span class="hk">^Z</span>undo</div>
       <div class="hint"><span class="hk">x</span>del</div>
+    </div>
+    <div id="layer-ctrl">
+      <button class="tb-btn layer-nav-btn" id="layer-prev-btn" title="前のレイヤー">‹</button>
+      <span id="layer-name-lbl">Layer 1</span>
+      <button class="tb-btn layer-nav-btn" id="layer-next-btn" title="次のレイヤー">›</button>
+      <button class="tb-btn layer-opacity-btn layer-opacity-opaque" id="layer-opacity-btn" title="透過設定を変更">●</button>
     </div>
     <div id="toolbar">
       <button class="tb-btn" id="theme-btn" title="テーマ切替">◑</button>
@@ -962,8 +992,12 @@
         hintReturnToMove: false,
         moveSelection: [],     // {kind,id} objects accumulating for move
         paletteReturnMode: null,
-        lensMode: false,
-        lensDepth: 1,
+        layers: [
+          { id: 1, name: 'Layer 1', opacity: 'opaque' },
+          { id: 2, name: 'Layer 2', opacity: 'opaque' },
+          { id: 3, name: 'Layer 3', opacity: 'opaque' },
+        ],
+        activeLayerId: 1,
         graphPos: {},          // 'kind:id' → {x,y}
         theme: 'dark',
       };
@@ -1190,7 +1224,6 @@
           if (kind === 'idea') { const o = S.ideas[id]; if (o) applyIdeaBorder(el, o, true); }
           else if (kind === 'zone') { el.classList.add('focused'); const z = S.zones.find(z => z.id === id); if (z) applyZoneBorder(el, z, true); }
         }
-        if (S.lensMode) applyLens();
         updateCmd();
       }
       function clearFocus() {
@@ -1201,7 +1234,6 @@
           }
         });
         S.focused = null;
-        if (S.lensMode) exitLensMode();
         updateCmd();
       }
       function getEl(kind, id) {
@@ -1212,10 +1244,9 @@
 
       // ─── IDEA ─────────────────────────────────────────────────────────────
       function createIdeaAt(x, y) {
-        colorClusterGroups = null; colorClusterMode = false;
         pushHistory();
         const id = S.nextId++;
-        S.ideas[id] = { id, x: snapVal(x), y: snapVal(y), text: '', color: 'purple' };
+        S.ideas[id] = { id, x: snapVal(x), y: snapVal(y), text: '', color: 'purple', layer: S.activeLayerId };
         renderIdea(id, true);
         focus('idea', id);
         setMode('edit');
@@ -1327,7 +1358,7 @@
         pushHistory();
         const pos = centerPos();
         const id = `z${S.nextId++}`;
-        S.zones.push({ id, x: pos.x - 100, y: pos.y - 75, w: 280, h: 190, label: 'ZONE' });
+        S.zones.push({ id, x: pos.x - 100, y: pos.y - 75, w: 280, h: 190, label: 'ZONE', layer: S.activeLayerId });
         renderZone(id, true);
         focus('zone', id);
         save(); updateStat();
@@ -1485,14 +1516,7 @@
           const hex = COLOR_HEX[color];
           const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
           g.classList.add('conn-g');
-          const dx = b.x - a.x, dy = b.y - a.y;
-          const td = Math.min(Math.sqrt(dx*dx+dy*dy) * 0.4, 120);
-          const aNorm = { x: aEdge.x - ra.cx, y: aEdge.y - ra.cy };
-          const bNorm = { x: bEdge.x - rb.cx, y: bEdge.y - rb.cy };
-          const al = Math.sqrt(aNorm.x*aNorm.x+aNorm.y*aNorm.y)||1, bl = Math.sqrt(bNorm.x*bNorm.x+bNorm.y*bNorm.y)||1;
-          const c1 = b2s(aEdge.x + aNorm.x/al*td/S.zoom, aEdge.y + aNorm.y/al*td/S.zoom);
-          const c2 = b2s(bEdge.x + bNorm.x/bl*td/S.zoom, bEdge.y + bNorm.y/bl*td/S.zoom);
-          const d = `M${a.x},${a.y} C${c1.x},${c1.y} ${c2.x},${c2.y} ${b.x},${b.y}`;
+          const d = `M${a.x},${a.y} L${b.x},${b.y}`;
           // glow
           const glow = document.createElementNS('http://www.w3.org/2000/svg', 'path');
           glow.setAttribute('d', d); glow.setAttribute('fill', 'none');
@@ -1518,7 +1542,6 @@
           svgOverlay.appendChild(g);
         });
         updateConnectLine();
-        drawColorHalos();
       }
 
       // ─── CONNECT ENDPOINTS ────────────────────────────────────────────────
@@ -1827,7 +1850,7 @@
         if (S.mode === 'edit') return;
 
         if (e.key === 'Escape') {
-          closePalette(); exitConnectMode(); closeHintSelect(); cancelMoveSelect(); exitLensMode();
+          closePalette(); exitConnectMode(); closeHintSelect(); cancelMoveSelect();
           if (S.cmdMode === 'bridge') { S.connectFrom = null; }
           S.cmdBuf = ''; S.cmdMode = null;
           if (S.mode === 'resize') setMode('select');
@@ -1884,13 +1907,6 @@
           if (e.key === 'Enter') { fitAll(); S.cmdBuf = ''; S.cmdMode = null; updateCmd(); return; }
           if (/^[1-9]$/.test(e.key)) { zoomToSection(+e.key); S.cmdBuf = ''; S.cmdMode = null; updateCmd(); return; }
           return;
-        }
-
-        // ── Lens depth shortcut (1-3 while in lens mode) ──
-        if (S.lensMode && /^[123]$/.test(e.key)) {
-          e.preventDefault();
-          S.lensDepth = +e.key;
-          applyLens(); updateCmd(); return;
         }
 
         // ── Ctrl shortcuts ──
@@ -1993,18 +2009,10 @@
             openHintSelect(false, true);
             break;
           case 'p': e.preventDefault(); openPalette(); break;
-          case 'l':
-            e.preventDefault();
-            if (S.lensMode) exitLensMode(); else enterLensMode();
-            break;
           case 'G': // Shift+G: snap toggle
             e.preventDefault();
             snapEnabled = !snapEnabled;
             toast(snapEnabled ? 'スナップ ON' : 'スナップ OFF');
-            break;
-          case 'C': // Shift+C: color gather
-            e.preventDefault();
-            colorGather();
             break;
           case 'M': // Shift+M: minimap toggle
             e.preventDefault();
@@ -2201,68 +2209,8 @@
         }
       }
 
-      // ─── LENS MODE ────────────────────────────────────────────────────────
-      // エンドポイント指定子から対応するアイデア・ゾーン・ブックのデータオブジェクトを返す。
-      function getObjData(ep) {
-        if (ep.kind === 'idea') return S.ideas[ep.id];
-        if (ep.kind === 'zone') return S.zones.find(z => z.id === ep.id);
-        return null;
-      }
-
-      // BFS（幅優先探索）でコネクターを辿り、指定した深さまでの近傍エンドポイントキー集合を返す。
-      function getNeighborKeys(ep, depth) {
-        const visited = new Set([`${ep.kind}:${ep.id}`]);
-        let frontier = [ep];
-        for (let d = 0; d < depth; d++) {
-          const next = [];
-          frontier.forEach(f => {
-            S.connectors.forEach(c => {
-              const check = (from, to) => {
-                if (epEqual(from, f)) {
-                  const k = `${to.kind}:${to.id}`;
-                  if (!visited.has(k)) { visited.add(k); next.push(to); }
-                }
-              };
-              check(c.from, c.to);
-              check(c.to, c.from);
-            });
-          });
-          frontier = next;
-          if (!frontier.length) break;
-        }
-        return visited;
-      }
-
-      function applyLens() {
-        if (!S.lensMode || !S.focused) { exitLensMode(); return; }
-        const visible = getNeighborKeys(S.focused, S.lensDepth);
-        document.querySelectorAll('.idea, .zone').forEach(el => {
-          if (el.style.display === 'none') return;
-          let key = null;
-          if (el.classList.contains('idea')) key = `idea:${el.id.replace('idea-', '')}`;
-          else if (el.classList.contains('zone')) key = `zone:${el.id.replace('zone-', '')}`;
-          if (key) el.classList.toggle('lens-dim', !visible.has(key));
-        });
-      }
-
-      function enterLensMode() {
-        if (!S.focused) { toast('先にオブジェクトを選択してください'); return; }
-        S.lensMode = true; S.lensDepth = 1;
-        applyLens();
-        toast('フォーカスレンズ — 1〜3 で深さ変更  L or Esc で終了');
-        updateCmd();
-      }
-
-      function exitLensMode() {
-        if (!S.lensMode) return;
-        S.lensMode = false;
-        document.querySelectorAll('.lens-dim').forEach(el => el.classList.remove('lens-dim'));
-        updateCmd();
-      }
-
       // ─── AUTO LAYOUT (force-directed) ────────────────────────────────────
       function autoLayout() {
-        colorClusterGroups = null; colorClusterMode = false;
         pushHistory();
         const nodes = [];
         Object.values(S.ideas).forEach(o => {
@@ -2358,8 +2306,7 @@
         if (!a || !b) return;
         const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
         g.classList.add('conn-preview');
-        const dx = b.x - a.x, dy = b.y - a.y;
-        const d = `M${a.x},${a.y} C${a.x + dx * .35},${a.y} ${a.x + dx * .65},${b.y} ${b.x},${b.y}`;
+        const d = `M${a.x},${a.y} L${b.x},${b.y}`;
         const glow = document.createElementNS('http://www.w3.org/2000/svg', 'path');
         glow.setAttribute('d', d); glow.setAttribute('fill', 'none');
         glow.setAttribute('stroke', '#7b6cf6'); glow.setAttribute('stroke-width', '8'); glow.setAttribute('opacity', '.18');
@@ -2557,7 +2504,6 @@
       // ─── DELETE ───────────────────────────────────────────────────────────
       function deleteSelected() {
         if (!S.focused) return;
-        colorClusterGroups = null; colorClusterMode = false;
         pushHistory();
         const { kind, id } = S.focused;
         const el = getEl(kind, id);
@@ -2596,8 +2542,7 @@
         else if (S.mode === 'resize') txt = `リサイズモード — ↑↓←→:サイズ変更  Enter:確定`;
         else if (S.cmdMode === 'v') txt = 'VIEW: Enter=全体  1-9=テンキー位置  Esc:キャンセル';
         else if (S.cmdMode === 'bridge') txt = `架け橋: 接続先を選択 — f:選択  Esc:キャンセル`;
-        else if (S.lensMode) txt = `フォーカスレンズ (深さ:${S.lensDepth}) — 1〜3:深さ変更  L/Esc:終了`;
-        else if (S.focused) { const { kind } = S.focused; txt = `${kind} 選択中 — Enter:編集  c:接続  g:架け橋  l:レンズ  f:別を選択  p:カラー  x:削除`; }
+        else if (S.focused) { const { kind } = S.focused; txt = `${kind} 選択中 — Enter:編集  c:接続  g:架け橋  f:別を選択  p:カラー  x:削除`; }
         cmdBufEl.textContent = txt;
       }
       // ヘッダーのアイデア数・ゾーン数などの統計表示を更新する。
@@ -2626,7 +2571,8 @@
           try {
             localStorage.setItem('ideaboard_v4', JSON.stringify({
               ideas: S.ideas, connectors: S.connectors, zones: S.zones,
-              nextId: S.nextId, pan: S.pan, zoom: S.zoom, theme: S.theme
+              nextId: S.nextId, pan: S.pan, zoom: S.zoom, theme: S.theme,
+              layers: S.layers, activeLayerId: S.activeLayerId
             }));
           } catch (e) { }
         }, 400);
@@ -2641,7 +2587,13 @@
           Object.assign(S, {
             ideas: d.ideas || {}, connectors: d.connectors || [],
             zones: d.zones || [],
-            nextId: d.nextId || 1, pan: d.pan || S.pan, zoom: d.zoom || 1, theme: d.theme || 'dark'
+            nextId: d.nextId || 1, pan: d.pan || S.pan, zoom: d.zoom || 1, theme: d.theme || 'dark',
+            layers: d.layers || [
+              { id: 1, name: 'Layer 1', opacity: 'opaque' },
+              { id: 2, name: 'Layer 2', opacity: 'opaque' },
+              { id: 3, name: 'Layer 3', opacity: 'opaque' },
+            ],
+            activeLayerId: d.activeLayerId || 1,
           });
           // normalize idea ids to numbers
           const fixed = {};
@@ -2664,6 +2616,8 @@
         buildArrowMarkers();
         redrawConnectors();
         applyXform(); updateStat();
+        applyLayerOpacity();
+        updateLayerUI();
         document.body.classList.toggle('light', S.theme === 'light');
         document.getElementById('theme-btn').textContent = S.theme === 'dark' ? '◑' : '◐';
       }
@@ -2710,128 +2664,71 @@
         reader.readAsText(file);
         ev.target.value = '';
       }
-      // ─── COLOR GATHER ─────────────────────────────────────────────────────
-      let colorClusterMode = false;
-      let colorClusterSavedPos = null;
-      let colorClusterGroups = null;
-
-      function colorGather() {
-        const ideas = Object.values(S.ideas).filter(o => {
-          const el = getEl('idea', o.id);
-          return el && el.style.display !== 'none';
-        });
-        if (ideas.length < 2) { toast('アイデアが少なすぎます'); return; }
-
-        pushHistory();
-
-        colorClusterGroups = {};
-        ideas.forEach(o => {
-          const c = o.color || 'purple';
-          if (!colorClusterGroups[c]) colorClusterGroups[c] = [];
-          colorClusterGroups[c].push(o);
-        });
-
-        const colorNames = Object.keys(colorClusterGroups);
-        const numGroups = colorNames.length;
-
-        const wrapR = boardWrap.getBoundingClientRect();
-        const cx0 = (wrapR.width / 2 - S.pan.x) / S.zoom;
-        const cy0 = (wrapR.height / 2 - S.pan.y) / S.zoom;
-
-        const CARD_W = 216, CARD_H = 90, GAP = 14;
-        const CIRCLE_R = numGroups <= 1 ? 0 : Math.max(280, numGroups * 95);
-
-        const groupLayouts = {};
-        colorNames.forEach(color => {
-          const n = colorClusterGroups[color].length;
-          const cols = Math.ceil(Math.sqrt(n));
-          const rows = Math.ceil(n / cols);
-          groupLayouts[color] = { cols, rows, w: cols * CARD_W + (cols - 1) * GAP, h: rows * CARD_H + (rows - 1) * GAP };
-        });
-
-        const startPos = {}, endPos = {};
-        ideas.forEach(o => { startPos[o.id] = { x: o.x, y: o.y }; });
-
-        colorNames.forEach((color, gi) => {
-          const angle = numGroups <= 1 ? 0 : (gi / numGroups) * Math.PI * 2 - Math.PI / 2;
-          const gCX = cx0 + CIRCLE_R * Math.cos(angle);
-          const gCY = cy0 + CIRCLE_R * Math.sin(angle);
-          const ly = groupLayouts[color];
-          colorClusterGroups[color].forEach((o, i) => {
-            const col = i % ly.cols, row = Math.floor(i / ly.cols);
-            endPos[o.id] = {
-              x: gCX - ly.w / 2 + col * (CARD_W + GAP),
-              y: gCY - ly.h / 2 + row * (CARD_H + GAP)
-            };
-          });
-        });
-
-        colorClusterMode = true;
-
-        const DURATION = 650, t0 = performance.now();
-        function tick(t) {
-          const p = Math.min((t - t0) / DURATION, 1);
-          const ease = p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2;
-          ideas.forEach(o => {
-            const s = startPos[o.id], e = endPos[o.id];
-            if (!s || !e) return;
-            o.x = s.x + (e.x - s.x) * ease;
-            o.y = s.y + (e.y - s.y) * ease;
-            const el = getEl('idea', o.id);
-            if (el) { el.style.left = o.x + 'px'; el.style.top = o.y + 'px'; }
-          });
-          redrawConnectors(); updateMinimap();
-          if (p < 1) requestAnimationFrame(tick);
-          else { save(); toast(`${numGroups}色のグループに集合しました`); }
-        }
-        requestAnimationFrame(tick);
-        toast('色別に集合中...');
+      // ─── LAYER SYSTEM ─────────────────────────────────────────────────────
+      function getActiveLayer() {
+        return S.layers.find(l => l.id === S.activeLayerId) || S.layers[0];
       }
 
-      function exitColorGather() {
-        colorClusterMode = false;
-        colorClusterGroups = null;
-        colorClusterSavedPos = null;
-      }
-
-      function drawColorHalos() {
-        svgOverlay.querySelectorAll('.color-halo').forEach(e => e.remove());
-        if (!colorClusterMode || !colorClusterGroups) return;
-        const PAD = 30;
-        Object.entries(colorClusterGroups).forEach(([color, groupIdeas]) => {
-          if (!groupIdeas.length) return;
-          let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-          groupIdeas.forEach(o => {
-            const el = getEl('idea', o.id);
-            const w = el ? el.offsetWidth : 216, h = el ? el.offsetHeight : 90;
-            minX = Math.min(minX, o.x - PAD); minY = Math.min(minY, o.y - PAD);
-            maxX = Math.max(maxX, o.x + w + PAD); maxY = Math.max(maxY, o.y + h + PAD);
-          });
-          const hex = COLOR_HEX[color];
-          const tl = b2s(minX, minY), br = b2s(maxX, maxY);
-          const w = br.x - tl.x, h = br.y - tl.y;
-
-          const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-          rect.classList.add('color-halo');
-          rect.setAttribute('x', tl.x); rect.setAttribute('y', tl.y);
-          rect.setAttribute('width', w); rect.setAttribute('height', h);
-          rect.setAttribute('rx', '18');
-          rect.setAttribute('fill', hex + '0d');
-          rect.setAttribute('stroke', hex + '55');
-          rect.setAttribute('stroke-width', '1.5');
-          rect.setAttribute('stroke-dasharray', '6 4');
-          svgOverlay.insertBefore(rect, svgOverlay.firstChild);
-
-          const lbl = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-          lbl.classList.add('color-halo');
-          lbl.setAttribute('x', tl.x + 14); lbl.setAttribute('y', tl.y - 6);
-          lbl.setAttribute('fill', hex); lbl.setAttribute('font-size', '10');
-          lbl.setAttribute('font-weight', '700'); lbl.setAttribute('letter-spacing', '0.8');
-          lbl.setAttribute('font-family', "'SFMono-Regular', Consolas, monospace");
-          lbl.textContent = color.toUpperCase();
-          svgOverlay.appendChild(lbl);
+      function applyLayerOpacity() {
+        const OPACITY = { opaque: '', semi: '0.35', transparent: '0' };
+        Object.values(S.ideas).forEach(o => {
+          const el = getEl('idea', o.id); if (!el) return;
+          const lid = o.layer || 1;
+          if (lid === S.activeLayerId) {
+            el.style.opacity = ''; el.style.pointerEvents = '';
+          } else {
+            const layer = S.layers.find(l => l.id === lid);
+            const op = layer ? layer.opacity : 'opaque';
+            el.style.opacity = OPACITY[op];
+            el.style.pointerEvents = op === 'transparent' ? 'none' : '';
+          }
+        });
+        S.zones.forEach(z => {
+          const el = getEl('zone', z.id); if (!el) return;
+          const lid = z.layer || 1;
+          if (lid === S.activeLayerId) {
+            el.style.opacity = ''; el.style.pointerEvents = '';
+          } else {
+            const layer = S.layers.find(l => l.id === lid);
+            const op = layer ? layer.opacity : 'opaque';
+            el.style.opacity = OPACITY[op];
+            el.style.pointerEvents = op === 'transparent' ? 'none' : '';
+          }
         });
       }
+
+      function updateLayerUI() {
+        const layer = getActiveLayer();
+        const idx = S.layers.findIndex(l => l.id === S.activeLayerId);
+        document.getElementById('layer-name-lbl').textContent = `${layer.name}`;
+        const btn = document.getElementById('layer-opacity-btn');
+        const icons = { opaque: '●', semi: '◐', transparent: '○' };
+        const labels = { opaque: '不透過', semi: '半透過', transparent: '透過' };
+        btn.textContent = icons[layer.opacity] || '●';
+        btn.title = `${layer.name}: ${labels[layer.opacity]} — クリックで切り替え`;
+        btn.className = `tb-btn layer-opacity-btn layer-opacity-${layer.opacity}`;
+      }
+
+      function switchLayer(dir) {
+        const idx = S.layers.findIndex(l => l.id === S.activeLayerId);
+        const next = (idx + dir + S.layers.length) % S.layers.length;
+        S.activeLayerId = S.layers[next].id;
+        clearFocus();
+        applyLayerOpacity();
+        updateLayerUI();
+        save();
+        toast(`${S.layers[next].name} — ${({ opaque: '不透過', semi: '半透過', transparent: '透過' })[S.layers[next].opacity]}`);
+      }
+
+      function cycleLayerOpacity() {
+        const layer = getActiveLayer();
+        layer.opacity = ({ opaque: 'semi', semi: 'transparent', transparent: 'opaque' })[layer.opacity] || 'opaque';
+        applyLayerOpacity();
+        updateLayerUI();
+        save();
+        toast(`${layer.name}: ${{ opaque: '不透過', semi: '半透過', transparent: '透過' }[layer.opacity]}`);
+      }
+
 
       // ─── GATHER MOVE SELECTION ────────────────────────────────────────────
       function gatherMoveSelection() {
@@ -2884,10 +2781,13 @@
       (function init() {
         const hasSaved = loadSaved();
         renderAll();
-        if (!hasSaved) toast('i でアイデアを作成、Enter で次々と連続入力  /  c で接続  /  f でジャンプ選択  /  Alt+ドラッグ でパン');
+        if (!hasSaved) toast('i でアイデアを作成  /  c で接続  /  f でジャンプ  /  Shift+クリックで複数選択  /  Alt+ドラッグでパン');
         document.getElementById('json-import-btn').addEventListener('click', () =>
           document.getElementById('json-import-input').click());
         document.getElementById('json-import-input').addEventListener('change', ev => importJSON(ev));
+        document.getElementById('layer-prev-btn').addEventListener('click', () => switchLayer(-1));
+        document.getElementById('layer-next-btn').addEventListener('click', () => switchLayer(1));
+        document.getElementById('layer-opacity-btn').addEventListener('click', () => cycleLayerOpacity());
       })();
 
       return { exportJSON, importJSON };
