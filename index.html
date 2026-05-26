@@ -846,6 +846,7 @@
       <div class="hint"><span class="hk">p</span>color</div>
       <div class="hint"><span class="hk">l</span>lens</div>
       <div class="hint"><span class="hk">s</span>sort</div>
+      <div class="hint"><span class="hk">⇧click</span>複数選択</div>
       <div class="hint"><span class="hk">⇧C</span>色集合</div>
       <div class="hint"><span class="hk">^Z</span>undo</div>
       <div class="hint"><span class="hk">x</span>del</div>
@@ -1262,7 +1263,9 @@
           makeDraggable(el, () => S.ideas[id], o => { });
           el.addEventListener('click', e => {
             e.stopPropagation();
-            if (S.mode === 'select') focus('idea', id);
+            if (S.mode !== 'select') return;
+            if (e.shiftKey) { toggleMoveSelect({ kind: 'idea', id }); return; }
+            focus('idea', id);
           });
           el.addEventListener('dblclick', e => {
             e.stopPropagation();
@@ -1769,9 +1772,9 @@
             S.moveSelection = selected;
             selected.forEach(({ kind, id }) => {
               const el = getEl(kind, id);
-              if (el) el.classList.add('focused');
+              if (el) el.classList.add('move-selected');
             });
-            toast(`${selected.length}件選択 — 矢印キーで移動  Enter:確定  Esc:終了`);
+            toast(`${selected.length}件選択 — g:集合  p:色付け  ↑↓←→:移動  Esc:解除`);
             updateCmd();
           }
         }
@@ -1905,8 +1908,8 @@
               .map(o => ({ kind: 'idea', id: o.id }));
             if (all.length) {
               S.cmdMode = 'move'; S.moveSelection = all;
-              all.forEach(({ kind, id }) => { const el = getEl(kind, id); if (el) el.classList.add('focused'); });
-              toast(`${all.length}件全選択 — 矢印キーで移動  Enter:確定  Esc:終了`);
+              all.forEach(({ kind, id }) => { const el = getEl(kind, id); if (el) el.classList.add('move-selected'); });
+              toast(`${all.length}件全選択 — g:集合  p:色付け  ↑↓←→:移動  Esc:解除`);
               updateCmd();
             }
             return;
@@ -2037,7 +2040,28 @@
       });
 
       // ─── MOVE SELECTION ───────────────────────────────────────────────────
+      function toggleMoveSelect(ep) {
+        if (S.cmdMode !== 'move') { S.cmdMode = 'move'; S.moveSelection = []; }
+        const idx = S.moveSelection.findIndex(s => s.kind === ep.kind && s.id === ep.id);
+        const el = getEl(ep.kind, ep.id);
+        if (idx >= 0) {
+          S.moveSelection.splice(idx, 1);
+          if (el) { el.classList.remove('move-selected'); el.classList.remove('focused'); }
+          if (S.moveSelection.length === 0) { S.cmdMode = null; }
+        } else {
+          S.moveSelection.push(ep);
+          if (el) el.classList.add('move-selected');
+        }
+        if (S.moveSelection.length > 0)
+          toast(`${S.moveSelection.length}件選択中 — Shift+クリックで追加/解除  g:集合  p:色付け  Esc:解除`);
+        updateCmd();
+      }
+
       function cancelMoveSelect() {
+        S.moveSelection.forEach(({ kind, id }) => {
+          const el = getEl(kind, id);
+          if (el) { el.classList.remove('move-selected'); el.classList.remove('focused'); }
+        });
         document.querySelectorAll('.move-selected').forEach(el => el.classList.remove('move-selected'));
         S.moveSelection = [];
         if (S.cmdMode === 'move') { S.cmdMode = null; S.cmdBuf = ''; }
