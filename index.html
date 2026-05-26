@@ -14,71 +14,72 @@
 
     /* ─── THEME ─── */
     :root {
-      --bg: #0a0a0f;
-      --board-dot: rgba(255,255,255,0.055);
-      --surface: #111118;
-      --card: #16161f;
-      --card-border: #252530;
-      --text: #ededf0;
-      --muted: #8888a0;
-      --dim: #55556a;
-      --header-bg: #111118;
-      --header-border: #1e1e2a;
-      --cmd-bg: #111118;
-      --palette-bg: #1a1a24;
-      --toast-bg: #1a1a24;
-      --toast-border: #2a2a38;
-      --accent: #6366f1;
-      --purple: #a78bfa;
-      --cyan:   #22d3ee;
-      --green:  #34d399;
-      --amber:  #fbbf24;
-      --pink:   #f472b6;
-      --selection: rgba(99,102,241,0.14);
+      --bg: #0d1117;
+      --board-dot: rgba(255,255,255,0.038);
+      --surface: #161b22;
+      --card: #161b22;
+      --card-border: #30363d;
+      --text: #e6edf3;
+      --muted: #8b949e;
+      --dim: #6e7681;
+      --header-bg: #161b22;
+      --header-border: #21262d;
+      --cmd-bg: #161b22;
+      --palette-bg: #1c2128;
+      --toast-bg: #1c2128;
+      --toast-border: #30363d;
+      --accent: #58a6ff;
+      --purple: #bc8cff;
+      --cyan:   #39c5cf;
+      --green:  #3fb950;
+      --amber:  #d29922;
+      --pink:   #f778ba;
+      --selection: rgba(88,166,255,0.12);
     }
 
     body.light {
-      --bg: #f4f4f8;
-      --board-dot: rgba(0,0,0,0.07);
-      --surface: #ffffff;
+      --bg: #ffffff;
+      --board-dot: rgba(0,0,0,0.045);
+      --surface: #f6f8fa;
       --card: #ffffff;
-      --card-border: #e2e2ec;
-      --text: #111118;
-      --muted: #5c5c78;
-      --dim: #9090a8;
-      --header-bg: #ffffff;
-      --header-border: #e2e2ec;
-      --cmd-bg: #ffffff;
-      --palette-bg: #f9f9fc;
+      --card-border: #d0d7de;
+      --text: #1f2328;
+      --muted: #656d76;
+      --dim: #818b98;
+      --header-bg: #f6f8fa;
+      --header-border: #d0d7de;
+      --cmd-bg: #f6f8fa;
+      --palette-bg: #ffffff;
       --toast-bg: #ffffff;
-      --toast-border: #e2e2ec;
-      --accent: #6366f1;
-      --purple: #7c3aed;
-      --cyan:   #0891b2;
-      --green:  #059669;
-      --amber:  #d97706;
-      --pink:   #db2777;
-      --selection: rgba(99,102,241,0.1);
+      --toast-border: #d0d7de;
+      --accent: #0969da;
+      --purple: #8250df;
+      --cyan:   #1b7c83;
+      --green:  #1a7f37;
+      --amber:  #9a6700;
+      --pink:   #bf3989;
+      --selection: rgba(9,105,218,0.08);
     }
 
     body {
       background: var(--bg);
       color: var(--text);
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans JP", Helvetica, Arial, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans JP", ui-sans-serif, system-ui, sans-serif;
       height: 100vh;
       overflow: hidden;
       display: flex;
       flex-direction: column;
       user-select: none;
+      -webkit-font-smoothing: antialiased;
     }
 
     /* ─── HEADER ─── */
     #header {
       display: flex;
       align-items: center;
-      gap: 10px;
-      padding: 0 14px;
-      height: 44px;
+      gap: 8px;
+      padding: 0 12px;
+      height: 40px;
       background: var(--header-bg);
       border-bottom: 1px solid var(--header-border);
       flex-shrink: 0;
@@ -86,19 +87,18 @@
     }
 
     #app-name {
-      font-size: 11px;
-      font-weight: 700;
-      color: var(--dim);
-      letter-spacing: 1.2px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text);
+      letter-spacing: 0;
       flex-shrink: 0;
-      text-transform: uppercase;
       user-select: none;
     }
 
     #header-sep {
       width: 1px;
-      height: 18px;
-      background: var(--header-border);
+      height: 16px;
+      background: var(--card-border);
       flex-shrink: 0;
     }
 
@@ -106,18 +106,18 @@
       display: flex;
       align-items: center;
       gap: 5px;
-      padding: 4px 10px;
-      border-radius: 6px;
+      padding: 3px 8px;
+      border-radius: 20px;
       font-size: 10px;
-      font-weight: 700;
-      letter-spacing: .5px;
-      transition: all 0.15s;
+      font-weight: 600;
+      letter-spacing: .3px;
+      transition: all 0.12s;
       flex-shrink: 0;
     }
 
-    #mode-badge.select { background: rgba(99,102,241,.12); border: 1px solid rgba(99,102,241,.3); color: var(--accent); }
-    #mode-badge.edit   { background: rgba(52,211,153,.12); border: 1px solid rgba(52,211,153,.3); color: var(--green); }
-    #mode-badge.resize { background: rgba(34,211,238,.12); border: 1px solid rgba(34,211,238,.3); color: var(--cyan); }
+    #mode-badge.select { background: rgba(88,166,255,.1); border: 1px solid rgba(88,166,255,.25); color: var(--accent); }
+    #mode-badge.edit   { background: rgba(63,185,80,.1); border: 1px solid rgba(63,185,80,.25); color: var(--green); }
+    #mode-badge.resize { background: rgba(57,197,207,.1); border: 1px solid rgba(57,197,207,.25); color: var(--cyan); }
 
     #mode-dot {
       width: 5px;
@@ -144,47 +144,48 @@
 
     #zoom-display:hover { color: var(--muted); }
 
-    .hints { display: flex; gap: 3px; flex-wrap: nowrap; overflow: hidden; }
+    .hints { display: flex; gap: 4px; flex-wrap: nowrap; overflow: hidden; }
     .hint { display: flex; align-items: center; gap: 3px; font-size: 10px; color: var(--dim); white-space: nowrap; }
 
     .hk {
-      background: rgba(255,255,255,.05);
-      border: 1px solid rgba(255,255,255,.1);
-      border-bottom: 1px solid rgba(255,255,255,.2);
+      background: var(--surface);
+      border: 1px solid var(--card-border);
+      border-bottom-width: 2px;
       border-radius: 4px;
       padding: 0 5px;
       font-size: 9.5px;
-      font-family: 'SFMono-Regular', Consolas, monospace;
-      color: var(--dim);
+      font-family: ui-monospace, 'SFMono-Regular', Consolas, monospace;
+      color: var(--muted);
       line-height: 17px;
     }
     body.light .hk {
-      background: rgba(0,0,0,.04);
-      border-color: rgba(0,0,0,.12);
-      border-bottom-color: rgba(0,0,0,.2);
+      background: #f6f8fa;
+      border-color: #d0d7de;
+      border-bottom-color: #b1bac4;
     }
 
     #toolbar { margin-left: auto; display: flex; gap: 6px; align-items: center; }
 
     .tb-btn {
-      background: transparent;
+      background: var(--surface);
       border: 1px solid var(--card-border);
       border-radius: 6px;
       color: var(--muted);
       font-family: inherit;
-      font-size: 11px;
+      font-size: 12px;
       font-weight: 500;
-      padding: 4px 11px;
+      padding: 3px 12px;
       cursor: pointer;
-      transition: all .12s;
-      letter-spacing: .2px;
+      transition: background .1s, border-color .1s, color .1s;
+      line-height: 20px;
     }
 
-    .tb-btn:hover { background: var(--surface); color: var(--text); border-color: var(--muted); }
+    .tb-btn:hover { background: var(--card-border); color: var(--text); border-color: var(--muted); }
 
     #theme-btn {
-      padding: 4px 8px;
-      font-size: 13px;
+      padding: 3px 9px;
+      font-size: 14px;
+      line-height: 20px;
     }
 
     /* ─── BOARD ─── */
@@ -246,25 +247,25 @@
       position: absolute;
       min-width: 192px;
       max-width: 288px;
-      padding: 12px 14px 13px 18px;
+      padding: 11px 14px 12px 17px;
       background: var(--card);
-      border-radius: 10px;
+      border-radius: 6px;
       border: 1px solid var(--card-border);
       cursor: default;
-      box-shadow: 0 1px 3px rgba(0,0,0,.5), 0 4px 12px rgba(0,0,0,.3);
+      box-shadow: 0 1px 0 rgba(0,0,0,.25);
       overflow: hidden;
-      transition: box-shadow .1s, border-color .1s;
+      transition: border-color .1s, box-shadow .1s;
       will-change: transform;
     }
     .idea::before {
       content: '';
       position: absolute; left:0; top:0; bottom:0; width:3px;
       background: var(--idea-accent, var(--purple));
-      border-radius: 10px 0 0 10px;
+      border-radius: 6px 0 0 6px;
     }
     .idea:hover {
       border-color: var(--idea-accent, var(--purple));
-      box-shadow: 0 0 0 1px var(--idea-accent, var(--purple));
+      box-shadow: 0 1px 0 rgba(0,0,0,.25), 0 0 0 1px var(--idea-accent, var(--purple));
     }
     .idea.focused {
       border-color: var(--idea-accent, var(--purple));
@@ -274,7 +275,7 @@
     .idea-body {
       font-size: 13px;
       color: var(--text);
-      line-height: 1.6;
+      line-height: 1.55;
       word-break: break-word;
       white-space: pre-wrap;
       min-height: 18px;
@@ -301,12 +302,12 @@
 
     @keyframes springIn {
       0% {
-        transform: scale(.45) translateY(12px);
+        transform: scale(.75) translateY(6px);
         opacity: 0
       }
 
-      65% {
-        transform: scale(1.04) translateY(-2px);
+      70% {
+        transform: scale(1.02) translateY(-1px);
         opacity: 1
       }
 
@@ -334,9 +335,9 @@
     /* ─── ZONE ─── */
     .zone {
       position: absolute;
-      border: 1.5px solid var(--zone-border-col, rgba(255,255,255,.14));
-      border-radius: 10px;
-      background: var(--zone-fill, rgba(255,255,255,.025));
+      border: 1px solid var(--zone-border-col, var(--card-border));
+      border-radius: 6px;
+      background: var(--zone-fill, rgba(255,255,255,.02));
       cursor: default;
       transition: border-color .15s, box-shadow .15s, background .15s;
     }
@@ -421,20 +422,18 @@
       display: flex;
       align-items: center;
       gap: 8px;
-      padding: 0 16px;
+      padding: 0 14px;
       background: var(--cmd-bg);
       border-top: 1px solid var(--header-border);
       flex-shrink: 0;
       font-size: 11px;
-      height: 28px;
-      font-family: 'SFMono-Regular', Consolas, monospace;
-      box-shadow: 0 -1px 4px rgba(0,0,0,.15);
+      height: 26px;
+      font-family: ui-monospace, 'SFMono-Regular', Consolas, monospace;
     }
 
     #cmd-prompt {
-      color: var(--purple);
-      font-weight: 700;
-      opacity: .7;
+      color: var(--dim);
+      font-weight: 500;
     }
 
     #cmd-buf {
@@ -466,18 +465,18 @@
     /* ─── MINIMAP ─── */
     #minimap {
       position: fixed;
-      bottom: 40px;
-      right: 16px;
-      width: 176px;
-      height: 116px;
+      bottom: 38px;
+      right: 14px;
+      width: 168px;
+      height: 112px;
       background: var(--header-bg);
       border: 1px solid var(--card-border);
-      border-radius: 8px;
+      border-radius: 6px;
       overflow: hidden;
       z-index: 200;
       cursor: crosshair;
-      box-shadow: 0 4px 20px rgba(0,0,0,.5);
-      opacity: 0.85;
+      box-shadow: 0 8px 24px rgba(0,0,0,.35);
+      opacity: 0.82;
       transition: opacity .15s;
     }
     #minimap:hover { opacity: 1; }
@@ -493,18 +492,18 @@
     /* ─── PALETTE ─── */
     #palette {
       position: fixed;
-      bottom: 44px;
+      bottom: 38px;
       left: 50%;
-      transform: translateX(-50%) translateY(8px);
+      transform: translateX(-50%) translateY(6px);
       background: var(--palette-bg);
       border: 1px solid var(--card-border);
-      border-radius: 14px;
-      padding: 12px 14px;
+      border-radius: 8px;
+      padding: 10px 12px;
       display: none;
       z-index: 500;
-      box-shadow: 0 8px 40px rgba(0,0,0,.55);
+      box-shadow: 0 8px 32px rgba(0,0,0,.4), 0 1px 3px rgba(0,0,0,.3);
       opacity: 0;
-      transition: opacity .15s, transform .15s;
+      transition: opacity .12s, transform .12s;
     }
     #palette.show {
       display: block;
@@ -514,22 +513,20 @@
     .pal-grid {
       display: grid;
       grid-template-columns: repeat(5, 1fr);
-      gap: 6px;
+      gap: 5px;
     }
     .psw {
-      width: 26px;
-      height: 26px;
-      border-radius: 6px;
+      width: 24px;
+      height: 24px;
+      border-radius: 4px;
       cursor: pointer;
-      border: 1.5px solid transparent;
-      transition: transform .1s, border-color .1s, box-shadow .1s;
+      border: 1px solid transparent;
+      transition: transform .1s, border-color .1s;
       position: relative;
-      box-shadow: 0 1px 4px rgba(0,0,0,.3);
     }
     .psw:hover {
-      transform: scale(1.15);
-      border-color: rgba(255,255,255,.9);
-      box-shadow: 0 2px 10px rgba(0,0,0,.5);
+      transform: scale(1.18);
+      border-color: rgba(255,255,255,.85);
     }
     .psw-k {
       position: absolute;
@@ -790,20 +787,20 @@
     /* ─── TOAST ─── */
     .toast {
       position: fixed;
-      bottom: 48px;
+      bottom: 38px;
       left: 50%;
       transform: translateX(-50%) translateY(4px);
       background: var(--toast-bg);
       border: 1px solid var(--toast-border);
       color: var(--text);
-      font-size: 12px;
-      padding: 7px 16px;
-      border-radius: 8px;
+      font-size: 11.5px;
+      padding: 6px 14px;
+      border-radius: 6px;
       pointer-events: none;
       z-index: 9999;
-      box-shadow: 0 4px 16px rgba(0,0,0,.4);
+      box-shadow: 0 4px 16px rgba(0,0,0,.3), 0 1px 3px rgba(0,0,0,.2);
       white-space: nowrap;
-      animation: toastIn .18s ease forwards, toastOut .2s ease 6.7s forwards;
+      animation: toastIn .15s ease forwards, toastOut .2s ease 6.7s forwards;
     }
 
     @keyframes toastIn {
@@ -833,7 +830,7 @@
 <body>
 
   <div id="header">
-    <span id="app-name">✦ IDEA BOARD</span>
+    <span id="app-name">Idea Board</span>
     <div id="header-sep"></div>
     <div id="mode-badge" class="select">
       <div id="mode-dot"></div>
@@ -963,6 +960,7 @@
         hintReturnToConnect: false,
         hintReturnToMove: false,
         moveSelection: [],     // {kind,id} objects accumulating for move
+        paletteReturnMode: null,
         lensMode: false,
         lensDepth: 1,
         graphPos: {},          // 'kind:id' → {x,y}
@@ -1213,7 +1211,7 @@
 
       // ─── IDEA ─────────────────────────────────────────────────────────────
       function createIdeaAt(x, y) {
-        if (colorClusterMode) exitColorGather();
+        colorClusterGroups = null; colorClusterMode = false;
         pushHistory();
         const id = S.nextId++;
         S.ideas[id] = { id, x: snapVal(x), y: snapVal(y), text: '', color: 'purple' };
@@ -1861,6 +1859,8 @@
           if (e.key === 'Escape') { cancelMoveSelect(); return; }
           if (e.key === 'Enter') { e.preventDefault(); finalizeMoveSelect(); return; }
           if (e.key === 'f' || e.key === 'm') { e.preventDefault(); openHintSelect(false, true); return; }
+          if (e.key === 'p') { e.preventDefault(); openPalette(); return; }
+          if (e.key === 'g') { e.preventDefault(); gatherMoveSelection(); return; }
           if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
             e.preventDefault();
             const step = e.shiftKey ? 50 : 20;
@@ -2238,7 +2238,7 @@
 
       // ─── AUTO LAYOUT (force-directed) ────────────────────────────────────
       function autoLayout() {
-        if (colorClusterMode) exitColorGather();
+        colorClusterGroups = null; colorClusterMode = false;
         pushHistory();
         const nodes = [];
         Object.values(S.ideas).forEach(o => {
@@ -2487,31 +2487,42 @@
       }
 
       // ─── PALETTE ──────────────────────────────────────────────────────────
-      // カラーパレットUIを表示してパレットコマンドモードに移行する。
       function openPalette() {
-        if (!S.lastFocused) { toast('先にオブジェクトを選択してください'); return; }
+        if (!S.lastFocused && S.moveSelection.length === 0) { toast('先にオブジェクトを選択してください'); return; }
+        S.paletteReturnMode = S.cmdMode;
         S.cmdMode = 'palette'; palette.classList.add('show'); updateCmd();
       }
       function closePalette() {
         palette.classList.remove('show');
-        if (S.cmdMode === 'palette') S.cmdMode = null;
+        if (S.cmdMode === 'palette') {
+          S.cmdMode = S.paletteReturnMode || null;
+          S.paletteReturnMode = null;
+        }
       }
       function handlePaletteKey(key) {
         const c = COLOR_KEYS[key];
         if (c) applyColor(c);
         closePalette(); updateCmd();
       }
-      // 最後にフォーカスされたオブジェクトに指定カラーを適用し、コネクターを再描画して保存する。
       function applyColor(color) {
         pushHistory();
-        const lf = S.lastFocused;
-        if (!lf) return;
-        if (lf.kind === 'idea') {
-          const o = S.ideas[lf.id]; if (!o) return;
-          o.color = color; renderIdea(lf.id); focus('idea', lf.id);
-        } else if (lf.kind === 'zone') {
-          const z = S.zones.find(z => z.id === lf.id); if (!z) return;
-          z.color = color; renderZone(lf.id); focus('zone', lf.id);
+        const targets = S.moveSelection.length > 0
+          ? S.moveSelection
+          : (S.lastFocused ? [S.lastFocused] : []);
+        if (!targets.length) return;
+        targets.forEach(({ kind, id }) => {
+          if (kind === 'idea') {
+            const o = S.ideas[id]; if (!o) return;
+            o.color = color; renderIdea(id);
+          } else if (kind === 'zone') {
+            const z = S.zones.find(z => z.id === id); if (!z) return;
+            z.color = color; renderZone(id);
+          }
+        });
+        if (S.focused) {
+          const { kind, id } = S.focused;
+          if (kind === 'idea') { const el = getEl('idea', id); const o = S.ideas[id]; if (el && o) applyIdeaBorder(el, o, true); }
+          else if (kind === 'zone') { const el = getEl('zone', id); const z = S.zones.find(z=>z.id===id); if (el && z) applyZoneBorder(el, z, true); }
         }
         buildArrowMarkers(); redrawConnectors(); save();
       }
@@ -2522,7 +2533,7 @@
       // ─── DELETE ───────────────────────────────────────────────────────────
       function deleteSelected() {
         if (!S.focused) return;
-        if (colorClusterMode) exitColorGather();
+        colorClusterGroups = null; colorClusterMode = false;
         pushHistory();
         const { kind, id } = S.focused;
         const el = getEl(kind, id);
@@ -2555,7 +2566,7 @@
         else if (S.cmdMode === 'hint')
           txt = `ジャンプ [${S.hintBuf || '_'}] — アルファベットを入力  Esc:キャンセル`;
         else if (S.cmdMode === 'move')
-          txt = `移動モード: ${S.moveSelection.length}件選択済  f:追加  ↑↓←→:移動  Shift+↑↓:大移動  Enter:確定  Esc:終了`;
+          txt = `移動モード: ${S.moveSelection.length}件選択済  f:追加  g:集合  p:色付け  ↑↓←→:移動  Enter:確定  Esc:終了`;
         else if (S.cmdBuf) txt = S.cmdBuf;
         else if (S.cmdMode === 'palette') txt = 'COLOR: 1紫  2シアン  3緑  4琥珀  5ピンク  Esc:キャンセル';
         else if (S.mode === 'resize') txt = `リサイズモード — ↑↓←→:サイズ変更  Enter:確定`;
@@ -2681,8 +2692,6 @@
       let colorClusterGroups = null;
 
       function colorGather() {
-        if (colorClusterMode) { exitColorGather(); return; }
-
         const ideas = Object.values(S.ideas).filter(o => {
           const el = getEl('idea', o.id);
           return el && el.style.display !== 'none';
@@ -2690,9 +2699,6 @@
         if (ideas.length < 2) { toast('アイデアが少なすぎます'); return; }
 
         pushHistory();
-
-        colorClusterSavedPos = {};
-        ideas.forEach(o => { colorClusterSavedPos[o.id] = { x: o.x, y: o.y }; });
 
         colorClusterGroups = {};
         ideas.forEach(o => {
@@ -2752,40 +2758,16 @@
           });
           redrawConnectors(); updateMinimap();
           if (p < 1) requestAnimationFrame(tick);
-          else { save(); toast(`${numGroups}色のグループに集合しました — Shift+C で元に戻す`); }
+          else { save(); toast(`${numGroups}色のグループに集合しました`); }
         }
         requestAnimationFrame(tick);
         toast('色別に集合中...');
       }
 
       function exitColorGather() {
-        if (!colorClusterMode || !colorClusterSavedPos) { colorClusterMode = false; colorClusterGroups = null; return; }
-        const ideas = Object.values(S.ideas).filter(o => getEl('idea', o.id));
-        const startPos = {}, endPos = colorClusterSavedPos;
-        ideas.forEach(o => { startPos[o.id] = { x: o.x, y: o.y }; });
-
         colorClusterMode = false;
         colorClusterGroups = null;
         colorClusterSavedPos = null;
-
-        const DURATION = 550, t0 = performance.now();
-        function tick(t) {
-          const p = Math.min((t - t0) / DURATION, 1);
-          const ease = 1 - Math.pow(1 - p, 3);
-          ideas.forEach(o => {
-            const s = startPos[o.id], e = endPos[o.id];
-            if (!s || !e) return;
-            o.x = s.x + (e.x - s.x) * ease;
-            o.y = s.y + (e.y - s.y) * ease;
-            const el = getEl('idea', o.id);
-            if (el) { el.style.left = o.x + 'px'; el.style.top = o.y + 'px'; }
-          });
-          redrawConnectors(); updateMinimap();
-          if (p < 1) requestAnimationFrame(tick);
-          else { save(); }
-        }
-        requestAnimationFrame(tick);
-        toast('元の配置に戻しました');
       }
 
       function drawColorHalos() {
@@ -2825,6 +2807,53 @@
           lbl.textContent = color.toUpperCase();
           svgOverlay.appendChild(lbl);
         });
+      }
+
+      // ─── GATHER MOVE SELECTION ────────────────────────────────────────────
+      function gatherMoveSelection() {
+        const items = S.moveSelection
+          .filter(({ kind }) => kind === 'idea')
+          .map(({ id }) => {
+            const o = S.ideas[id], el = getEl('idea', id);
+            return (o && el) ? { o, w: el.offsetWidth, h: el.offsetHeight } : null;
+          }).filter(Boolean);
+        if (items.length < 2) { toast('2件以上のアイデアを選択してください'); return; }
+
+        pushHistory();
+        const cx = items.reduce((s, { o }) => s + o.x, 0) / items.length;
+        const cy = items.reduce((s, { o }) => s + o.y, 0) / items.length;
+
+        const CARD_W = 216, CARD_H = 90, GAP = 14;
+        const cols = Math.ceil(Math.sqrt(items.length));
+        const totalW = cols * CARD_W + (cols - 1) * GAP;
+        const totalH = Math.ceil(items.length / cols) * CARD_H + (Math.ceil(items.length / cols) - 1) * GAP;
+
+        const startPos = {}, endPos = {};
+        items.forEach(({ o }, i) => {
+          startPos[o.id] = { x: o.x, y: o.y };
+          endPos[o.id] = {
+            x: cx - totalW / 2 + (i % cols) * (CARD_W + GAP),
+            y: cy - totalH / 2 + Math.floor(i / cols) * (CARD_H + GAP)
+          };
+        });
+
+        const DURATION = 520, t0 = performance.now();
+        function tick(t) {
+          const p = Math.min((t - t0) / DURATION, 1);
+          const ease = 1 - Math.pow(1 - p, 3);
+          items.forEach(({ o }) => {
+            const s = startPos[o.id], e = endPos[o.id];
+            if (!s || !e) return;
+            o.x = s.x + (e.x - s.x) * ease;
+            o.y = s.y + (e.y - s.y) * ease;
+            const el = getEl('idea', o.id);
+            if (el) { el.style.left = o.x + 'px'; el.style.top = o.y + 'px'; }
+          });
+          redrawConnectors(); updateMinimap();
+          if (p < 1) requestAnimationFrame(tick);
+          else { save(); toast(`${items.length}件を集合させました`); }
+        }
+        requestAnimationFrame(tick);
       }
 
       // ─── INIT ─────────────────────────────────────────────────────────────
