@@ -75,14 +75,48 @@ body{
 /* ── Board canvas ── */
 #board{
   position:absolute;width:8000px;height:8000px;
-  transform-origin:0 0;
+  transform-origin:0 0;z-index:10;
 }
 
-/* ── SVG overlay ── */
+/* ── SVG overlay (behind board) ── */
 #connector-svg{
   position:fixed;top:0;left:0;width:100vw;height:100vh;
-  pointer-events:none;z-index:50;
+  pointer-events:none;z-index:5;
 }
+
+/* ── Help modal ── */
+#help-modal{
+  display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:500;
+  align-items:center;justify-content:center;
+}
+#help-modal.show{display:flex;}
+#help-inner{
+  background:var(--surface);border:1px solid var(--card-border);border-radius:8px;
+  width:600px;max-width:95vw;max-height:80vh;display:flex;flex-direction:column;
+  box-shadow:0 12px 32px rgba(0,0,0,.5);
+}
+#help-header{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:12px 16px;border-bottom:1px solid var(--header-border);flex-shrink:0;
+}
+#help-header strong{font-size:13px;color:var(--text);}
+#help-close{
+  background:none;border:none;color:var(--muted);cursor:pointer;
+  font-size:14px;padding:2px 6px;border-radius:4px;
+}
+#help-close:hover{background:var(--card-border);color:var(--text);}
+#help-body{padding:12px 16px;overflow-y:auto;display:grid;grid-template-columns:1fr 1fr;gap:0 24px;}
+.help-section{margin-bottom:12px;}
+.help-section h4{font-size:10px;font-weight:700;color:var(--accent);letter-spacing:.07em;
+  text-transform:uppercase;margin-bottom:6px;}
+.help-row{display:flex;gap:8px;padding:2px 0;border-bottom:1px solid var(--header-border);}
+.help-row:last-child{border:none;}
+.help-key{
+  font-family:ui-monospace,SFMono-Regular,monospace;font-size:10px;font-weight:600;
+  color:var(--text);background:var(--card-border);border-radius:3px;
+  padding:1px 5px;white-space:nowrap;flex-shrink:0;align-self:center;
+}
+.help-desc{font-size:11px;color:var(--muted);align-self:center;}
 
 /* ── Idea card ── */
 .idea{
@@ -219,6 +253,7 @@ body{
   <button class="tb-btn" id="theme-btn" title="テーマ切替">◑</button>
   <button class="tb-btn" id="export-btn">JSON</button>
   <label class="tb-btn" style="cursor:pointer" title="JSONインポート">読込<input type="file" accept=".json" id="import-file" style="display:none"></label>
+  <button class="tb-btn" id="help-btn" title="ショートカット一覧">?</button>
 </div>
 
 <div id="board-wrap">
@@ -244,6 +279,76 @@ body{
 </div>
 
 <div id="toast"></div>
+
+<div id="help-modal">
+  <div id="help-inner">
+    <div id="help-header">
+      <strong>キーボードショートカット一覧</strong>
+      <button id="help-close">✕</button>
+    </div>
+    <div id="help-body">
+      <div class="help-section">
+        <h4>基本操作</h4>
+        <div class="help-row"><span class="help-key">i</span><span class="help-desc">新規アイデア作成（フォーカス直下）</span></div>
+        <div class="help-row"><span class="help-key">z</span><span class="help-desc">新規ゾーン作成</span></div>
+        <div class="help-row"><span class="help-key">Enter</span><span class="help-desc">編集モード開始</span></div>
+        <div class="help-row"><span class="help-key">Tab</span><span class="help-desc">選択 ↔ 編集モード切替</span></div>
+        <div class="help-row"><span class="help-key">x / Del</span><span class="help-desc">フォーカス中オブジェクトを削除</span></div>
+        <div class="help-row"><span class="help-key">Ctrl+D</span><span class="help-desc">アイデアを複製 (+24,+24)</span></div>
+        <div class="help-row"><span class="help-key">u / Ctrl+Z</span><span class="help-desc">元に戻す（最大50ステップ）</span></div>
+        <div class="help-row"><span class="help-key">Esc</span><span class="help-desc">モード終了・フォーカス解除</span></div>
+      </div>
+      <div class="help-section">
+        <h4>ナビゲーション</h4>
+        <div class="help-row"><span class="help-key">Arrow</span><span class="help-desc">近接オブジェクトへフォーカス移動</span></div>
+        <div class="help-row"><span class="help-key">Shift+Arrow</span><span class="help-desc">フォーカス中を 10px 移動</span></div>
+        <div class="help-row"><span class="help-key">Ctrl+Arrow</span><span class="help-desc">ビューをパン（80px）</span></div>
+        <div class="help-row"><span class="help-key">f</span><span class="help-desc">Vimium 風ヒント選択</span></div>
+        <div class="help-row"><span class="help-key">+ / =</span><span class="help-desc">ズームイン</span></div>
+        <div class="help-row"><span class="help-key">-</span><span class="help-desc">ズームアウト</span></div>
+        <div class="help-row"><span class="help-key">0</span><span class="help-desc">ズームリセット (100%)</span></div>
+        <div class="help-row"><span class="help-key">v → Enter</span><span class="help-desc">全体フィット</span></div>
+        <div class="help-row"><span class="help-key">v → 1〜9</span><span class="help-desc">テンキー配置ゾームへ移動</span></div>
+        <div class="help-row"><span class="help-key">Shift+M</span><span class="help-desc">ミニマップ 表示/非表示</span></div>
+        <div class="help-row"><span class="help-key">Shift+G</span><span class="help-desc">グリッドスナップ ON/OFF</span></div>
+      </div>
+      <div class="help-section">
+        <h4>接続 (c で開始)</h4>
+        <div class="help-row"><span class="help-key">c</span><span class="help-desc">コネクトモード開始（要フォーカス）</span></div>
+        <div class="help-row"><span class="help-key">f</span><span class="help-desc">ヒント選択で接続先を指定</span></div>
+        <div class="help-row"><span class="help-key">Arrow</span><span class="help-desc">近くのオブジェクトへ移動</span></div>
+        <div class="help-row"><span class="help-key">Enter</span><span class="help-desc">直線で接続</span></div>
+        <div class="help-row"><span class="help-key">Shift+Enter</span><span class="help-desc">矢印付き直線で接続</span></div>
+        <div class="help-row"><span class="help-key">g</span><span class="help-desc">架け橋: ヒントで接続先を選択</span></div>
+      </div>
+      <div class="help-section">
+        <h4>複数選択 (移動モード)</h4>
+        <div class="help-row"><span class="help-key">Shift+クリック</span><span class="help-desc">選択に追加/解除</span></div>
+        <div class="help-row"><span class="help-key">Shift+ドラッグ</span><span class="help-desc">ラバーバンド選択</span></div>
+        <div class="help-row"><span class="help-key">Ctrl+A</span><span class="help-desc">全アイデアを選択</span></div>
+        <div class="help-row"><span class="help-key">m / f</span><span class="help-desc">ヒントで追加選択</span></div>
+        <div class="help-row"><span class="help-key">Arrow</span><span class="help-desc">選択中を 20px 移動</span></div>
+        <div class="help-row"><span class="help-key">Shift+Arrow</span><span class="help-desc">選択中を 50px 移動</span></div>
+        <div class="help-row"><span class="help-key">g</span><span class="help-desc">選択中を重心に集合アニメーション</span></div>
+        <div class="help-row"><span class="help-key">p</span><span class="help-desc">選択中に一括色付け</span></div>
+        <div class="help-row"><span class="help-key">Enter</span><span class="help-desc">確定（選択解除）</span></div>
+      </div>
+      <div class="help-section">
+        <h4>カラー (p で開く)</h4>
+        <div class="help-row"><span class="help-key">p</span><span class="help-desc">カラーパレットを開く</span></div>
+        <div class="help-row"><span class="help-key">1〜0</span><span class="help-desc">purple / blue / cyan / teal / green / lime / yellow / amber / orange / red</span></div>
+        <div class="help-row"><span class="help-key">q w e r t</span><span class="help-desc">rose / pink / violet / indigo / slate</span></div>
+      </div>
+      <div class="help-section">
+        <h4>レイヤー</h4>
+        <div class="help-row"><span class="help-key">‹ ›</span><span class="help-desc">前/次のレイヤーへ切替（1→2→3→1）</span></div>
+        <div class="help-row"><span class="help-key">●</span><span class="help-desc">透過設定サイクル (不透過→半透過→透過)</span></div>
+        <div class="help-row"><span class="help-key">s</span><span class="help-desc">自動レイアウト（力指向グラフ）</span></div>
+        <div class="help-row"><span class="help-key">r</span><span class="help-desc">ゾーンリサイズモード</span></div>
+      </div>
+    </div>
+  </div>
+</div>
 
 <div id="palette">
   <h3>カラーを選択</h3>
@@ -424,25 +529,23 @@ function applyLayerOpacity(){
   Object.values(S.ideas).forEach(o=>{
     const el=getEl('idea',o.id);if(!el)return;
     const lid=o.layer||1;
-    if(lid===S.activeLayerId){el.style.opacity='';el.style.pointerEvents='';}
-    else{
-      const lyr=S.layers.find(l=>l.id===lid);
-      const op=lyr?lyr.opacity:'opaque';
-      el.style.opacity=OPACITY[op];
-      el.style.pointerEvents=op==='transparent'?'none':'';
-    }
+    const lyr=S.layers.find(l=>l.id===lid);
+    const op=lyr?lyr.opacity:'opaque';
+    // opacity applies to ALL layers (including active)
+    el.style.opacity=OPACITY[op];
+    // pointer-events: active layer always interactive, others obey opacity
+    el.style.pointerEvents=(lid===S.activeLayerId)?'':(op==='transparent'?'none':'');
   });
   S.zones.forEach(z=>{
     const el=getEl('zone',z.id);if(!el)return;
     const lid=z.layer||1;
-    if(lid===S.activeLayerId){el.style.opacity='';el.style.pointerEvents='';}
-    else{
-      const lyr=S.layers.find(l=>l.id===lid);
-      const op=lyr?lyr.opacity:'opaque';
-      el.style.opacity=OPACITY[op];
-      el.style.pointerEvents=op==='transparent'?'none':'';
-    }
+    const lyr=S.layers.find(l=>l.id===lid);
+    const op=lyr?lyr.opacity:'opaque';
+    el.style.opacity=OPACITY[op];
+    el.style.pointerEvents=(lid===S.activeLayerId)?'':(op==='transparent'?'none':'');
   });
+  // connectors are redrawn to reflect opacity
+  redrawConnectors();
 }
 function switchLayer(dir){
   const idx=S.layers.findIndex(l=>l.id===S.activeLayerId);
@@ -503,11 +606,49 @@ function endpointCenter(ep){
   const r=el.getBoundingClientRect();
   return{x:r.left+r.width/2,y:r.top+r.height/2};
 }
+// returns the point on rect's edge along the line from rect center toward target
+function rectExitPoint(rect,target){
+  const cx=rect.left+rect.width/2;
+  const cy=rect.top+rect.height/2;
+  const dx=target.x-cx,dy=target.y-cy;
+  if(Math.abs(dx)<0.5&&Math.abs(dy)<0.5)return{x:cx,y:cy};
+  const hw=rect.width/2,hh=rect.height/2;
+  let t=Infinity;
+  if(Math.abs(dx)>0.5){
+    const tx=(dx>0?hw:-hw)/dx;
+    if(tx>0){const y=cy+tx*dy;if(y>=rect.top-1&&y<=rect.bottom+1)t=Math.min(t,tx);}
+  }
+  if(Math.abs(dy)>0.5){
+    const ty=(dy>0?hh:-hh)/dy;
+    if(ty>0){const x=cx+ty*dx;if(x>=rect.left-1&&x<=rect.right+1)t=Math.min(t,ty);}
+  }
+  if(!isFinite(t))return{x:cx,y:cy};
+  return{x:cx+t*dx,y:cy+t*dy};
+}
+function layerOpacityValue(layerId){
+  const lyr=S.layers.find(l=>l.id===layerId);
+  const op=lyr?lyr.opacity:'opaque';
+  return{opaque:1,semi:0.35,transparent:0}[op]??1;
+}
 function redrawConnectors(){
   connG.innerHTML='';
   S.connectors.forEach(c=>{
-    const a=endpointCenter(c.from),b=endpointCenter(c.to);
-    if(!a||!b)return;
+    const fromEl=getEl(c.from.kind,c.from.id);
+    const toEl=getEl(c.to.kind,c.to.id);
+    if(!fromEl||!toEl)return;
+    // layer opacity: minimum of both endpoints' layer opacity
+    const fromObj=c.from.kind==='idea'?S.ideas[c.from.id]:S.zones.find(z=>z.id===c.from.id);
+    const toObj=c.to.kind==='idea'?S.ideas[c.to.id]:S.zones.find(z=>z.id===c.to.id);
+    const fromOpacity=layerOpacityValue(fromObj?fromObj.layer||1:S.activeLayerId);
+    const toOpacity=layerOpacityValue(toObj?toObj.layer||1:S.activeLayerId);
+    const opacity=Math.min(fromOpacity,toOpacity);
+    if(opacity===0)return;
+    const fromRect=fromEl.getBoundingClientRect();
+    const toRect=toEl.getBoundingClientRect();
+    const fromCenter={x:fromRect.left+fromRect.width/2,y:fromRect.top+fromRect.height/2};
+    const toCenter={x:toRect.left+toRect.width/2,y:toRect.top+toRect.height/2};
+    const a=rectExitPoint(fromRect,toCenter);
+    const b=rectExitPoint(toRect,fromCenter);
     const srcIdea=c.from.kind==='idea'?S.ideas[c.from.id]:null;
     const colorName=srcIdea?.color||'slate';
     const hex=COLOR_HEX[colorName]||'#8b949e';
@@ -516,6 +657,7 @@ function redrawConnectors(){
     path.setAttribute('stroke',hex);
     path.setAttribute('stroke-width','1.5');
     path.setAttribute('fill','none');
+    if(opacity<1)path.setAttribute('opacity',String(opacity));
     if(c.type==='arrow')path.setAttribute('marker-end',`url(#arr-${colorName})`);
     connG.appendChild(path);
   });
@@ -896,11 +1038,13 @@ function startConnectMode(){
 }
 function updateConnectLine(bx,by){
   if(!S.connectFrom)return;
-  const a=endpointCenter(S.connectFrom);
-  if(!a){connectLineEl.setAttribute('display','none');return;}
-  const p=b2s(bx,by);
+  const srcEl=getEl(S.connectFrom.kind,S.connectFrom.id);
+  if(!srcEl){connectLineEl.setAttribute('display','none');return;}
+  const srcRect=srcEl.getBoundingClientRect();
+  const mouseScreen=b2s(bx,by);
+  const a=rectExitPoint(srcRect,mouseScreen);
   connectLineEl.setAttribute('x1',a.x);connectLineEl.setAttribute('y1',a.y);
-  connectLineEl.setAttribute('x2',p.x);connectLineEl.setAttribute('y2',p.y);
+  connectLineEl.setAttribute('x2',mouseScreen.x);connectLineEl.setAttribute('y2',mouseScreen.y);
   connectLineEl.removeAttribute('display');
 }
 function exitConnectMode(){
@@ -1337,6 +1481,10 @@ document.getElementById('theme-btn').addEventListener('click',()=>{
 });
 document.getElementById('layer-prev-btn').addEventListener('click',()=>switchLayer(-1));
 document.getElementById('layer-next-btn').addEventListener('click',()=>switchLayer(1));
+const helpModal=document.getElementById('help-modal');
+document.getElementById('help-btn').addEventListener('click',()=>helpModal.classList.add('show'));
+document.getElementById('help-close').addEventListener('click',()=>helpModal.classList.remove('show'));
+helpModal.addEventListener('click',e=>{if(e.target===helpModal)helpModal.classList.remove('show');});
 layerOpacityBtn.addEventListener('click',cycleLayerOpacity);
 document.getElementById('export-btn').addEventListener('click',()=>{
   const data={ideas:S.ideas,connectors:S.connectors,zones:S.zones,
