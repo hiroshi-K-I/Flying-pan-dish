@@ -915,8 +915,17 @@ function makeDraggable(el,kind,id){
       const ddx=(e.clientX-ox)/S.zoom,ddy=(e.clientY-oy)/S.zoom;
       if(!moved&&(Math.abs(ddx)>3||Math.abs(ddy)>3)){moved=true;pushHistory();}
       if(!moved)return;
-      const nx=e.altKey?bx0+ddx:snapV(bx0+ddx);
-      const ny=e.altKey?by0+ddy:snapV(by0+ddy);
+      let nx=e.altKey?bx0+ddx:snapV(bx0+ddx);
+      let ny=e.altKey?by0+ddy:snapV(by0+ddy);
+      // alignment snap to other ideas (only single-item drag, not alt)
+      if(!e.altKey&&Object.keys(groupOffsets).length===0&&kind==='idea'){
+        const ALIGN=8/S.zoom;
+        Object.values(S.ideas).forEach(other=>{
+          if(+other.id===+id)return;
+          if(Math.abs(nx-other.x)<ALIGN)nx=other.x;
+          if(Math.abs(ny-other.y)<ALIGN)ny=other.y;
+        });
+      }
       obj.x=nx;obj.y=ny;
       el.style.left=nx+'px';el.style.top=ny+'px';
       // move group
@@ -951,7 +960,6 @@ function drawGuides(kind,id){
   const el=getEl('idea',id);if(!el)return;
   const ow=el.offsetWidth,oh=el.offsetHeight;
   const THRESH=6/S.zoom;
-  const wr=boardWrap.getBoundingClientRect();
   Object.values(S.ideas).forEach(other=>{
     if(+other.id===+id)return;
     const oel=getEl('idea',other.id);if(!oel)return;
@@ -960,7 +968,7 @@ function drawGuides(kind,id){
       const s=b2s(o.x,Math.min(o.y,other.y));
       const e2=b2s(o.x,Math.max(o.y+oh,other.y+th));
       const g=document.createElement('div');g.className='guide';
-      g.style.left=(s.x-wr.left)+'px';g.style.top=(Math.min(s.y,e2.y)-wr.top)+'px';
+      g.style.left=s.x+'px';g.style.top=Math.min(s.y,e2.y)+'px';
       g.style.width='0';g.style.height=Math.abs(e2.y-s.y)+'px';
       g.style.borderRight='none';g.style.borderLeft='1px dashed #f97316';
       boardWrap.appendChild(g);
@@ -969,7 +977,7 @@ function drawGuides(kind,id){
       const s=b2s(Math.min(o.x,other.x),o.y);
       const e2=b2s(Math.max(o.x+ow,other.x+tw),o.y);
       const g=document.createElement('div');g.className='guide';
-      g.style.top=(s.y-wr.top)+'px';g.style.left=(Math.min(s.x,e2.x)-wr.left)+'px';
+      g.style.top=s.y+'px';g.style.left=Math.min(s.x,e2.x)+'px';
       g.style.height='0';g.style.width=Math.abs(e2.x-s.x)+'px';
       g.style.borderBottom='none';g.style.borderTop='1px dashed #f97316';
       boardWrap.appendChild(g);
@@ -1093,6 +1101,67 @@ function gatherMoveSelection(){
   toast(`${items.length}件を整列しました`);
 }
 
+// relationship-aware grid: connected components cluster together, same-color singletons group
+function arrangeWithRelations(items,cx,cy){
+  if(!items.length)return;
+  const CARD_W=216,CARD_H=96,GAP=18;
+  // build adjacency among the given items
+  const idSet=new Set(items.map(({o})=>o.id));
+  const adj={};
+  items.forEach(({o})=>{adj[o.id]=new Set();});
+  S.connectors.forEach(c=>{
+    if(c.from.kind==='idea'&&c.to.kind==='idea'){
+      const a=+c.from.id,b=+c.to.id;
+      if(idSet.has(a)&&idSet.has(b)){adj[a].add(b);adj[b].add(a);}
+    }
+  });
+  // union-find
+  const par={};
+  items.forEach(({o})=>{par[o.id]=o.id;});
+  function find(x){return par[x]===x?x:(par[x]=find(par[x]));}
+  function union(x,y){par[find(x)]=find(y);}
+  items.forEach(({o})=>{adj[o.id].forEach(nid=>union(o.id,nid));});
+  // group into clusters keyed by root
+  const clusters={};
+  items.forEach(({o})=>{const r=find(o.id);(clusters[r]=clusters[r]||[]).push(o);});
+  // BFS-sort each multi-cluster from hub
+  const sorted=Object.values(clusters).map(group=>{
+    if(group.length===1)return group;
+    const hub=group.reduce((b,o)=>adj[o.id].size>adj[b.id].size?o:b,group[0]);
+    const order=[],visited=new Set(),queue=[hub.id];
+    visited.add(hub.id);
+    while(queue.length){
+      const cur=queue.shift();
+      const item=group.find(o=>o.id===cur);
+      if(item)order.push(item);
+      [...adj[cur]].forEach(nid=>{if(!visited.has(nid)){visited.add(nid);queue.push(nid);}});
+    }
+    group.forEach(o=>{if(!visited.has(o.id))order.push(o);});
+    return order;
+  });
+  // separate multi-clusters and singletons
+  const multi=sorted.filter(c=>c.length>1).sort((a,b)=>b.length-a.length);
+  const singles=sorted.filter(c=>c.length===1).sort((a,b)=>(a[0].color||'').localeCompare(b[0].color||''));
+  const finalOrder=[...multi.flat(),...singles.flat()];
+  // grid layout
+  const cols=Math.max(1,Math.ceil(Math.sqrt(finalOrder.length)));
+  const rows=Math.ceil(finalOrder.length/cols);
+  finalOrder.forEach((o,i)=>{
+    const col=i%cols,row=Math.floor(i/cols);
+    const tx=cx+(col-(cols-1)/2)*(CARD_W+GAP);
+    const ty=cy+(row-(rows-1)/2)*(CARD_H+GAP);
+    o.x=snapV(tx);o.y=snapV(ty);
+    const el=getEl('idea',o.id);
+    if(el){
+      el.style.transition='left .52s cubic-bezier(.22,.61,.36,1),top .52s cubic-bezier(.22,.61,.36,1)';
+      el.style.left=o.x+'px';el.style.top=o.y+'px';
+      setTimeout(()=>{if(el)el.style.transition='';},620);
+    }
+  });
+  setTimeout(()=>redrawConnectors(),620);
+  save();
+}
+
 // context-aware gather: 'a' key
 function smartGather(){
   const allIds=Object.keys(S.ideas).map(Number);
@@ -1108,23 +1177,21 @@ function smartGather(){
     if(items.length<2){toast('2件以上のアイデアを選択してください');return;}
     const cx=items.reduce((s,{o})=>s+o.x,0)/items.length;
     const cy=items.reduce((s,{o})=>s+o.y,0)/items.length;
-    arrangeGrid(items,cx,cy);
+    arrangeWithRelations(items,cx,cy);
     toast(`選択${items.length}件を整列しました`);
   } else {
     // all ideas
     const items=makeItems(allIds);
     let cx,cy;
     if(S.focused&&S.focused.kind==='idea'&&S.ideas[S.focused.id]){
-      // centered on focused idea
       cx=S.ideas[S.focused.id].x;cy=S.ideas[S.focused.id].y;
       const title=(S.ideas[S.focused.id].text||'').split('\n')[0].slice(0,14);
       toast(`「${title}」を中心に${items.length}件を整列`);
     } else {
-      // viewport center
       const vc=viewCenter();cx=vc.x;cy=vc.y;
       toast(`${items.length}件を画面中央に整列しました`);
     }
-    arrangeGrid(items,cx,cy);
+    arrangeWithRelations(items,cx,cy);
   }
 }
 
@@ -1342,11 +1409,12 @@ function fitAll(){
     maxX=Math.max(maxX,o.x+w);maxY=Math.max(maxY,o.y+h);
   });
   const PAD=80,wr=boardWrap.getBoundingClientRect();
-  const zx=(wr.width-PAD*2)/Math.max(1,maxX-minX);
-  const zy=(wr.height-PAD*2)/Math.max(1,maxY-minY);
+  const contentW=maxX-minX,contentH=maxY-minY;
+  const zx=(wr.width-PAD*2)/Math.max(1,contentW);
+  const zy=(wr.height-PAD*2)/Math.max(1,contentH);
   S.zoom=Math.min(Math.max(Math.min(zx,zy),.25),2.5);
-  S.pan.x=wr.left+PAD-minX*S.zoom;
-  S.pan.y=PAD-minY*S.zoom;
+  S.pan.x=(wr.width-contentW*S.zoom)/2-minX*S.zoom;
+  S.pan.y=(wr.height-contentH*S.zoom)/2-minY*S.zoom;
   applyXform();
 }
 function zoomToSection(key){
