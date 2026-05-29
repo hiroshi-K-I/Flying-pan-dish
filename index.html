@@ -372,7 +372,8 @@ body{
       </div>
       <div class="help-section">
         <h4>その他</h4>
-        <div class="help-row"><span class="help-key">s</span><span class="help-desc">自動レイアウト（力指向グラフ）</span></div>
+        <div class="help-row"><span class="help-key">s</span><span class="help-desc">自動レイアウト: 接続=IDEAL距離、非接続=適度に分散+重力</span></div>
+        <div class="help-row"><span class="help-key">a</span><span class="help-desc">スマート整列: 複数選択→選択のみ / フォーカスあり→そこを中心に全件 / なし→画面中央に全件</span></div>
         <div class="help-row"><span class="help-key">r</span><span class="help-desc">ゾーンリサイズモード</span></div>
       </div>
     </div>
@@ -1055,22 +1056,16 @@ function cancelMoveSelect(){
   });
   S.moveSelection=[];S.cmdMode=null;updateCmd();
 }
-function gatherMoveSelection(){
-  const items=S.moveSelection
-    .filter(({kind})=>kind==='idea')
-    .map(({id})=>{
-      const o=S.ideas[id],el=getEl('idea',id);
-      return(o&&el)?{o,w:el.offsetWidth,h:el.offsetHeight}:null;
-    }).filter(Boolean);
-  if(items.length<2){toast('2件以上のアイデアを選択してください');return;}
-  pushHistory();
-  const cx=items.reduce((s,{o})=>s+o.x,0)/items.length;
-  const cy=items.reduce((s,{o})=>s+o.y,0)/items.length;
-  const CARD_W=216,CARD_H=90,GAP=14;
-  const cols=Math.ceil(Math.sqrt(items.length));
+// shared: arrange items in a grid centered at (cx,cy) with animation
+function arrangeGrid(items,cx,cy){
+  if(!items.length)return;
+  const CARD_W=216,CARD_H=96,GAP=18;
+  const cols=Math.max(1,Math.ceil(Math.sqrt(items.length)));
+  const rows=Math.ceil(items.length/cols);
+  // sort by spatial order (top-left → bottom-right) to preserve rough grouping
+  items.sort((a,b)=>(a.o.y*1.5+a.o.x)-(b.o.y*1.5+b.o.x));
   items.forEach(({o},i)=>{
     const col=i%cols,row=Math.floor(i/cols);
-    const rows=Math.ceil(items.length/cols);
     const tx=cx+(col-(cols-1)/2)*(CARD_W+GAP);
     const ty=cy+(row-(rows-1)/2)*(CARD_H+GAP);
     o.x=snapV(tx);o.y=snapV(ty);
@@ -1078,11 +1073,59 @@ function gatherMoveSelection(){
     if(el){
       el.style.transition='left .52s cubic-bezier(.22,.61,.36,1),top .52s cubic-bezier(.22,.61,.36,1)';
       el.style.left=o.x+'px';el.style.top=o.y+'px';
-      setTimeout(()=>{if(el)el.style.transition='';},600);
+      setTimeout(()=>{if(el)el.style.transition='';},620);
     }
   });
-  setTimeout(()=>redrawConnectors(),600);
-  save();toast('集合しました');
+  setTimeout(()=>redrawConnectors(),620);
+  save();
+}
+
+function gatherMoveSelection(){
+  const items=S.moveSelection
+    .filter(({kind})=>kind==='idea')
+    .map(({id})=>{const o=S.ideas[id],el=getEl('idea',id);return(o&&el)?{o}:null;})
+    .filter(Boolean);
+  if(items.length<2){toast('2件以上のアイデアを選択してください');return;}
+  pushHistory();
+  const cx=items.reduce((s,{o})=>s+o.x,0)/items.length;
+  const cy=items.reduce((s,{o})=>s+o.y,0)/items.length;
+  arrangeGrid(items,cx,cy);
+  toast(`${items.length}件を整列しました`);
+}
+
+// context-aware gather: 'a' key
+function smartGather(){
+  const allIds=Object.keys(S.ideas).map(Number);
+  if(!allIds.length){toast('アイデアがありません');return;}
+  const makeItems=ids=>ids
+    .map(id=>{const o=S.ideas[id],el=getEl('idea',id);return(o&&el)?{o}:null;})
+    .filter(Boolean);
+  pushHistory();
+  if(S.moveSelection.length>=2){
+    // multi-select: gather only selected
+    const selIds=S.moveSelection.filter(s=>s.kind==='idea').map(s=>+s.id);
+    const items=makeItems(selIds);
+    if(items.length<2){toast('2件以上のアイデアを選択してください');return;}
+    const cx=items.reduce((s,{o})=>s+o.x,0)/items.length;
+    const cy=items.reduce((s,{o})=>s+o.y,0)/items.length;
+    arrangeGrid(items,cx,cy);
+    toast(`選択${items.length}件を整列しました`);
+  } else {
+    // all ideas
+    const items=makeItems(allIds);
+    let cx,cy;
+    if(S.focused&&S.focused.kind==='idea'&&S.ideas[S.focused.id]){
+      // centered on focused idea
+      cx=S.ideas[S.focused.id].x;cy=S.ideas[S.focused.id].y;
+      const title=(S.ideas[S.focused.id].text||'').split('\n')[0].slice(0,14);
+      toast(`「${title}」を中心に${items.length}件を整列`);
+    } else {
+      // viewport center
+      const vc=viewCenter();cx=vc.x;cy=vc.y;
+      toast(`${items.length}件を画面中央に整列しました`);
+    }
+    arrangeGrid(items,cx,cy);
+  }
 }
 
 // ── Palette ──────────────────────────────────────────────────────────────
@@ -1208,31 +1251,72 @@ function autoLayout(){
   const ids=Object.keys(S.ideas).map(Number);
   if(ids.length<2){toast('アイデアが2件以上必要です');return;}
   pushHistory();
-  const REPEL=26000,SPRING=0.007,ITERS=180;
+
+  // Parameters
+  const REPEL   = 7000;  // repulsion strength (between all pairs)
+  const IDEAL   = 280;   // target distance for connected pairs (px)
+  const SPRING  = 0.055; // Hooke spring toward IDEAL (not toward 0!)
+  const GRAVITY = 0.018; // weak pull toward centroid (prevents free drift)
+  const MAX_F   = 60;    // max force per step (prevents explosion)
+  const ITERS   = 240;
+
   const pos={};
   ids.forEach(id=>{pos[id]={x:S.ideas[id].x,y:S.ideas[id].y};});
-  for(let iter=0;iter<ITERS;iter++){
-    const force={};ids.forEach(id=>{force[id]={x:0,y:0};});
-    for(let i=0;i<ids.length;i++){
-      for(let j=i+1;j<ids.length;j++){
-        const a=ids[i],b=ids[j];
-        const dx=pos[b].x-pos[a].x,dy=pos[b].y-pos[a].y;
-        const d=Math.sqrt(dx*dx+dy*dy)+1;
-        const f=REPEL/(d*d);
-        force[a].x-=f*dx/d;force[a].y-=f*dy/d;
-        force[b].x+=f*dx/d;force[b].y+=f*dy/d;
-      }
-    }
-    S.connectors.forEach(c=>{
-      if(c.from.kind!=='idea'||c.to.kind!=='idea')return;
+
+  // Precompute connected pairs
+  const connPairs=[];
+  S.connectors.forEach(c=>{
+    if(c.from.kind==='idea'&&c.to.kind==='idea'){
       const a=+c.from.id,b=+c.to.id;
-      if(!pos[a]||!pos[b])return;
+      if(pos[a]&&pos[b])connPairs.push([a,b]);
+    }
+  });
+
+  for(let iter=0;iter<ITERS;iter++){
+    const cool=Math.pow(1-iter/ITERS,1.5); // nonlinear cooling
+    const force={};ids.forEach(id=>{force[id]={x:0,y:0};});
+
+    // centroid for gravity anchor
+    const cx0=ids.reduce((s,id)=>s+pos[id].x,0)/ids.length;
+    const cy0=ids.reduce((s,id)=>s+pos[id].y,0)/ids.length;
+
+    // pairwise repulsion
+    for(let i=0;i<ids.length;i++){
+      const a=ids[i];
+      for(let j=i+1;j<ids.length;j++){
+        const b=ids[j];
+        const dx=pos[b].x-pos[a].x,dy=pos[b].y-pos[a].y;
+        const d2=dx*dx+dy*dy+1;
+        const d=Math.sqrt(d2);
+        const nx=dx/d,ny=dy/d;
+        // repulsion: 1/d (slower falloff than 1/d²) so distant nodes still spread gently
+        const rep=Math.min(REPEL/d,MAX_F);
+        force[a].x-=rep*nx;force[a].y-=rep*ny;
+        force[b].x+=rep*nx;force[b].y+=rep*ny;
+      }
+      // gravity
+      force[a].x+=(cx0-pos[a].x)*GRAVITY;
+      force[a].y+=(cy0-pos[a].y)*GRAVITY;
+    }
+
+    // spring for connected pairs: Hooke toward IDEAL distance
+    connPairs.forEach(([a,b])=>{
       const dx=pos[b].x-pos[a].x,dy=pos[b].y-pos[a].y;
-      force[a].x+=SPRING*dx;force[a].y+=SPRING*dy;
-      force[b].x-=SPRING*dx;force[b].y-=SPRING*dy;
+      const d=Math.sqrt(dx*dx+dy*dy)+0.1;
+      const nx=dx/d,ny=dy/d;
+      const stretch=(d-IDEAL)*SPRING; // positive=too far(attract), negative=too close(repel)
+      force[a].x+=stretch*nx;force[a].y+=stretch*ny;
+      force[b].x-=stretch*nx;force[b].y-=stretch*ny;
     });
-    ids.forEach(id=>{pos[id].x+=force[id].x;pos[id].y+=force[id].y;});
+
+    // apply with cooling and clamping
+    ids.forEach(id=>{
+      const cap=MAX_F*cool+4;
+      pos[id].x+=Math.max(-cap,Math.min(cap,force[id].x));
+      pos[id].y+=Math.max(-cap,Math.min(cap,force[id].y));
+    });
   }
+
   ids.forEach(id=>{
     S.ideas[id].x=snapV(pos[id].x);S.ideas[id].y=snapV(pos[id].y);
     const el=getEl('idea',id);if(!el)return;
@@ -1378,6 +1462,7 @@ document.addEventListener('keydown',e=>{
   }
   if(S.cmdMode==='move'){
     if(e.key==='g'){gatherMoveSelection();return;}
+    if(e.key==='a'){smartGather();return;}
     if(e.key==='p'){openPalette();return;}
     if(e.key==='f'||e.key==='m'){openHintSelect(false,true);return;}
     if(e.key==='Enter'){cancelMoveSelect();return;}
@@ -1446,6 +1531,7 @@ document.addEventListener('keydown',e=>{
     case 'm':S.cmdMode='move';S.moveSelection=[];updateCmd();openHintSelect(false,true);break;
     case 'p':openPalette();break;
     case 's':autoLayout();break;
+    case 'a':smartGather();break;
     case 'u':undo();break;
     case 'v':viewMode=true;toast('ビューモード: Enter:フィット  1-9:位置移動  Esc:キャンセル');break;
     case 'r':
