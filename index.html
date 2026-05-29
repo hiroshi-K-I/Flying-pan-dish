@@ -209,7 +209,7 @@ body{
 .hint-label{
   position:absolute;z-index:200;background:var(--amber);color:#000;
   font-size:10px;font-weight:700;padding:1px 4px;border-radius:3px;
-  pointer-events:none;transform:translate(-50%,-120%);letter-spacing:.05em;
+  pointer-events:none;top:-18px;left:50%;transform:translateX(-50%);letter-spacing:.05em;
 }
 
 /* ── Minimap ── */
@@ -1287,7 +1287,6 @@ function openHintSelect(forConnect,forMove){
     const el=getEl(ep.kind,ep.id);if(!el)return;
     const lbl=document.createElement('div');
     lbl.className='hint-label';lbl.textContent=ch;lbl.dataset.hintKey=ch;
-    el.style.position='relative';
     el.appendChild(lbl);
   });
   updateCmd();
@@ -1320,12 +1319,10 @@ function autoLayout(){
   pushHistory();
 
   // Parameters
-  // Equilibrium distance for connected pairs ≈ 250px (card width 216px + ~34px gap)
-  // Formula: REPEL/d = SPRING*(d-IDEAL) → solve for d
-  const REPEL   = 1800;  // repulsion strength
-  const IDEAL   = 170;   // target distance for connected pairs (px)
-  const SPRING  = 0.08;  // Hooke spring toward IDEAL
-  const GRAVITY = 0.030; // pull toward centroid (keeps unconnected nodes from drifting)
+  const REPEL   = 900;   // repulsion strength (lower = ideas stay closer)
+  const IDEAL   = 260;   // target distance for connected pairs (px)
+  const SPRING  = 0.10;  // Hooke spring toward IDEAL
+  const GRAVITY = 0.06;  // pull toward centroid (keeps unconnected nodes from drifting)
   const MAX_F   = 35;    // max force per step
   const ITERS   = 240;
 
@@ -1386,6 +1383,13 @@ function autoLayout(){
     });
   }
 
+  // shift result so centroid sits at current view center
+  const finalCx=ids.reduce((s,id)=>s+pos[id].x,0)/ids.length;
+  const finalCy=ids.reduce((s,id)=>s+pos[id].y,0)/ids.length;
+  const vc=viewCenter();
+  const shiftX=vc.x-finalCx,shiftY=vc.y-finalCy;
+  ids.forEach(id=>{pos[id].x+=shiftX;pos[id].y+=shiftY;});
+
   ids.forEach(id=>{
     S.ideas[id].x=snapV(pos[id].x);S.ideas[id].y=snapV(pos[id].y);
     const el=getEl('idea',id);if(!el)return;
@@ -1393,7 +1397,7 @@ function autoLayout(){
     el.style.left=S.ideas[id].x+'px';el.style.top=S.ideas[id].y+'px';
     setTimeout(()=>{if(el)el.style.transition='';},800);
   });
-  setTimeout(()=>redrawConnectors(),800);
+  setTimeout(()=>{redrawConnectors();fitAll();},820);
   save();toast('レイアウトを適用しました');
 }
 
