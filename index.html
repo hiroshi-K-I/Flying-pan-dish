@@ -1318,87 +1318,105 @@ function autoLayout(){
   if(ids.length<2){toast('アイデアが2件以上必要です');return;}
   pushHistory();
 
-  // Parameters
-  const REPEL   = 900;   // repulsion strength (lower = ideas stay closer)
-  const IDEAL   = 260;   // target distance for connected pairs (px)
-  const SPRING  = 0.10;  // Hooke spring toward IDEAL
-  const GRAVITY = 0.06;  // pull toward centroid (keeps unconnected nodes from drifting)
-  const MAX_F   = 35;    // max force per step
-  const ITERS   = 240;
-
-  const pos={};
-  ids.forEach(id=>{pos[id]={x:S.ideas[id].x,y:S.ideas[id].y};});
-
-  // Precompute connected pairs
-  const connPairs=[];
+  // ── Radial layout: a star map expanding from center ──
+  // Build adjacency from idea↔idea connectors
+  const adj={};ids.forEach(id=>adj[id]=new Set());
   S.connectors.forEach(c=>{
     if(c.from.kind==='idea'&&c.to.kind==='idea'){
       const a=+c.from.id,b=+c.to.id;
-      if(pos[a]&&pos[b])connPairs.push([a,b]);
+      if(adj[a]&&adj[b]){adj[a].add(b);adj[b].add(a);}
     }
   });
 
-  for(let iter=0;iter<ITERS;iter++){
-    const cool=Math.pow(1-iter/ITERS,1.5); // nonlinear cooling
-    const force={};ids.forEach(id=>{force[id]={x:0,y:0};});
-
-    // centroid for gravity anchor
-    const cx0=ids.reduce((s,id)=>s+pos[id].x,0)/ids.length;
-    const cy0=ids.reduce((s,id)=>s+pos[id].y,0)/ids.length;
-
-    // pairwise repulsion
-    for(let i=0;i<ids.length;i++){
-      const a=ids[i];
-      for(let j=i+1;j<ids.length;j++){
-        const b=ids[j];
-        const dx=pos[b].x-pos[a].x,dy=pos[b].y-pos[a].y;
-        const d2=dx*dx+dy*dy+1;
-        const d=Math.sqrt(d2);
-        const nx=dx/d,ny=dy/d;
-        // repulsion: 1/d (slower falloff than 1/d²) so distant nodes still spread gently
-        const rep=Math.min(REPEL/d,MAX_F);
-        force[a].x-=rep*nx;force[a].y-=rep*ny;
-        force[b].x+=rep*nx;force[b].y+=rep*ny;
-      }
-      // gravity
-      force[a].x+=(cx0-pos[a].x)*GRAVITY;
-      force[a].y+=(cy0-pos[a].y)*GRAVITY;
+  // Find connected components
+  const seen=new Set(),components=[];
+  ids.forEach(id=>{
+    if(seen.has(id))return;
+    const comp=[],q=[id];seen.add(id);
+    while(q.length){
+      const cur=q.shift();comp.push(cur);
+      adj[cur].forEach(n=>{if(!seen.has(n)){seen.add(n);q.push(n);}});
     }
+    components.push(comp);
+  });
 
-    // spring for connected pairs: Hooke toward IDEAL distance
-    connPairs.forEach(([a,b])=>{
-      const dx=pos[b].x-pos[a].x,dy=pos[b].y-pos[a].y;
-      const d=Math.sqrt(dx*dx+dy*dy)+0.1;
-      const nx=dx/d,ny=dy/d;
-      const stretch=(d-IDEAL)*SPRING; // positive=too far(attract), negative=too close(repel)
-      force[a].x+=stretch*nx;force[a].y+=stretch*ny;
-      force[b].x-=stretch*nx;force[b].y-=stretch*ny;
-    });
+  // BFS tree from each component's hub (highest-degree node)
+  const children={},parent={},depth={},roots=[];
+  ids.forEach(id=>children[id]=[]);
+  components.forEach(comp=>{
+    const root=comp.reduce((b,o)=>adj[o].size>adj[b].size?o:b,comp[0]);
+    roots.push(root);
+    parent[root]=null;depth[root]=1;
+    const visited=new Set([root]),q=[root];
+    while(q.length){
+      const cur=q.shift();
+      [...adj[cur]].sort((x,y)=>x-y).forEach(n=>{
+        if(!visited.has(n)){
+          visited.add(n);parent[n]=cur;depth[n]=depth[cur]+1;
+          children[cur].push(n);q.push(n);
+        }
+      });
+    }
+  });
 
-    // apply with cooling and clamping
-    ids.forEach(id=>{
-      const cap=MAX_F*cool+4;
-      pos[id].x+=Math.max(-cap,Math.min(cap,force[id].x));
-      pos[id].y+=Math.max(-cap,Math.min(cap,force[id].y));
-    });
+  // Leaf weight per subtree → angular share
+  const weight={};
+  function computeWeight(n){
+    if(!children[n].length)return weight[n]=1;
+    let w=0;children[n].forEach(c=>w+=computeWeight(c));
+    return weight[n]=w;
+  }
+  roots.forEach(r=>computeWeight(r));
+
+  // Ring radii: expand each ring enough that nodes never crowd/overlap
+  const single=components.length===1;
+  const base=single?1:0;            // depth whose radius is 0 (center)
+  const MINSEP=300,RINGMIN=340;     // tangential gap + minimum ring spacing
+  const depthCount={};
+  ids.forEach(id=>{const d=depth[id];depthCount[d]=(depthCount[d]||0)+1;});
+  const maxD=Math.max(...ids.map(id=>depth[id]));
+  const ringR={};let prev=0;
+  for(let d=1;d<=maxD;d++){
+    if(d<=base){ringR[d]=0;continue;}
+    const rNeed=((depthCount[d]||1)*MINSEP)/(2*Math.PI); // circumference fits all nodes
+    ringR[d]=Math.max(prev+RINGMIN,rNeed);
+    prev=ringR[d];
   }
 
-  // shift result so centroid sits at current view center
-  const finalCx=ids.reduce((s,id)=>s+pos[id].x,0)/ids.length;
-  const finalCy=ids.reduce((s,id)=>s+pos[id].y,0)/ids.length;
-  const vc=viewCenter();
-  const shiftX=vc.x-finalCx,shiftY=vc.y-finalCy;
-  ids.forEach(id=>{pos[id].x+=shiftX;pos[id].y+=shiftY;});
-
-  ids.forEach(id=>{
-    S.ideas[id].x=snapV(pos[id].x);S.ideas[id].y=snapV(pos[id].y);
-    const el=getEl('idea',id);if(!el)return;
-    el.style.transition='left .7s cubic-bezier(.22,.61,.36,1),top .7s cubic-bezier(.22,.61,.36,1)';
-    el.style.left=S.ideas[id].x+'px';el.style.top=S.ideas[id].y+'px';
-    setTimeout(()=>{if(el)el.style.transition='';},800);
+  // Assign angle by recursively splitting each parent's wedge among children
+  const angle={},pos={};
+  const totalW=roots.reduce((s,r)=>s+weight[r],0);
+  function assign(n,start,end){
+    angle[n]=(start+end)/2;
+    let cur=start;const w=weight[n];
+    children[n].forEach(c=>{
+      const span=(end-start)*(weight[c]/w);
+      assign(c,cur,cur+span);cur+=span;
+    });
+  }
+  let a0=-Math.PI/2; // start at top
+  roots.forEach(r=>{
+    const span=2*Math.PI*(weight[r]/totalW);
+    assign(r,a0,a0+span);a0+=span;
   });
-  setTimeout(()=>{redrawConnectors();fitAll();},820);
-  save();toast('レイアウトを適用しました');
+
+  // Polar → cartesian, centered on current view center
+  const vc=viewCenter();
+  ids.forEach(id=>{
+    const r=ringR[depth[id]];
+    pos[id]={x:vc.x+r*Math.cos(angle[id]),y:vc.y+r*Math.sin(angle[id])};
+  });
+
+  // Apply with a smooth "expanding" animation
+  ids.forEach(id=>{
+    S.ideas[id].x=snapV(pos[id].x-108);S.ideas[id].y=snapV(pos[id].y-45);
+    const el=getEl('idea',id);if(!el)return;
+    el.style.transition='left .8s cubic-bezier(.16,.84,.3,1),top .8s cubic-bezier(.16,.84,.3,1)';
+    el.style.left=S.ideas[id].x+'px';el.style.top=S.ideas[id].y+'px';
+    setTimeout(()=>{if(el)el.style.transition='';},900);
+  });
+  setTimeout(()=>{redrawConnectors();fitAll();},920);
+  save();toast('星図レイアウトを適用しました');
 }
 
 // ── Viewport ──────────────────────────────────────────────────────────────
