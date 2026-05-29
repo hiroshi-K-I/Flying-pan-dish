@@ -1253,11 +1253,13 @@ function autoLayout(){
   pushHistory();
 
   // Parameters
-  const REPEL   = 7000;  // repulsion strength (between all pairs)
-  const IDEAL   = 280;   // target distance for connected pairs (px)
-  const SPRING  = 0.055; // Hooke spring toward IDEAL (not toward 0!)
-  const GRAVITY = 0.018; // weak pull toward centroid (prevents free drift)
-  const MAX_F   = 60;    // max force per step (prevents explosion)
+  // Equilibrium distance for connected pairs ≈ 250px (card width 216px + ~34px gap)
+  // Formula: REPEL/d = SPRING*(d-IDEAL) → solve for d
+  const REPEL   = 1800;  // repulsion strength
+  const IDEAL   = 170;   // target distance for connected pairs (px)
+  const SPRING  = 0.08;  // Hooke spring toward IDEAL
+  const GRAVITY = 0.030; // pull toward centroid (keeps unconnected nodes from drifting)
+  const MAX_F   = 35;    // max force per step
   const ITERS   = 240;
 
   const pos={};
