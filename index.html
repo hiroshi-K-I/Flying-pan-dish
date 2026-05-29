@@ -46,16 +46,42 @@ body{
 }
 #zoom-disp:hover{background:var(--surface)}
 #key-hints{font-size:10px;color:var(--dim);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#layer-ctrl{display:flex;align-items:center;gap:2px;margin-right:8px}
-.layer-nav-btn,.layer-opacity-btn{
-  background:none;border:1px solid var(--card-border);color:var(--text);
-  border-radius:4px;cursor:pointer;padding:2px 7px;font-size:12px;line-height:1.4;
+#layer-panel{
+  display:flex;align-items:center;gap:4px;margin-right:8px;
+  background:var(--surface);border:1px solid var(--card-border);
+  border-radius:6px;padding:2px;
 }
-.layer-nav-btn:hover,.layer-opacity-btn:hover{background:var(--surface);border-color:var(--accent)}
-#layer-name-lbl{font-size:11px;color:var(--text);padding:0 4px;min-width:54px;text-align:center}
-.layer-opacity-opaque{color:var(--accent)}
-.layer-opacity-semi{color:var(--muted)}
-.layer-opacity-transparent{color:var(--dim)}
+.layer-row{
+  display:flex;align-items:center;gap:3px;padding:2px 6px;border-radius:4px;
+  cursor:pointer;font-size:10px;line-height:1.3;
+  border:1px solid transparent;
+}
+.layer-row:hover{background:var(--bg)}
+.layer-row.active{background:var(--bg);border-color:var(--accent)}
+.layer-row.active .layer-row-name{color:var(--text);font-weight:600}
+.layer-row-name{
+  color:var(--muted);max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.layer-row-name-edit{
+  background:var(--bg);border:1px solid var(--accent);color:var(--text);
+  font:inherit;font-size:10px;outline:none;border-radius:2px;padding:0 3px;width:80px;
+}
+.layer-row-count{
+  color:var(--dim);font-size:9px;font-variant-numeric:tabular-nums;
+}
+.layer-row-op{
+  font-size:11px;border:none;background:none;cursor:pointer;padding:0 2px;
+  border-radius:3px;line-height:1;
+}
+.layer-row-op:hover{background:var(--card-border)}
+.op-opaque{color:var(--accent)}
+.op-semi{color:var(--amber)}
+.op-transparent{color:var(--dim)}
+#active-warn{
+  display:none;font-size:10px;color:var(--amber);padding:2px 6px;
+  border:1px solid var(--amber);border-radius:4px;background:rgba(210,153,34,.1);
+}
+#active-warn.show{display:inline-block}
 .tb-btn{
   background:none;border:1px solid var(--card-border);color:var(--text);
   border-radius:4px;cursor:pointer;padding:2px 8px;font-size:12px;white-space:nowrap;
@@ -244,12 +270,8 @@ body{
   <span id="zoom-disp" title="クリックでリセット">100%</span>
   <div class="hdr-sep"></div>
   <span id="key-hints">i:アイデア  z:ゾーン  c:接続  f:選択  s:レイアウト  p:色  Shift+クリック:複数選択</span>
-  <div id="layer-ctrl">
-    <button class="tb-btn layer-nav-btn" id="layer-prev-btn" title="前のレイヤー">‹</button>
-    <span id="layer-name-lbl">Layer 1</span>
-    <button class="tb-btn layer-nav-btn" id="layer-next-btn" title="次のレイヤー">›</button>
-    <button class="tb-btn layer-opacity-btn layer-opacity-opaque" id="layer-opacity-btn" title="透過設定">●</button>
-  </div>
+  <div id="layer-panel" title="クリック:切替  ●◐○:透過設定  名前ダブルクリック:編集"></div>
+  <span id="active-warn" title="アクティブレイヤーが透過になっています">⚠ 非表示中</span>
   <button class="tb-btn" id="theme-btn" title="テーマ切替">◑</button>
   <button class="tb-btn" id="export-btn">JSON</button>
   <label class="tb-btn" style="cursor:pointer" title="JSONインポート">読込<input type="file" accept=".json" id="import-file" style="display:none"></label>
@@ -341,8 +363,15 @@ body{
       </div>
       <div class="help-section">
         <h4>レイヤー</h4>
-        <div class="help-row"><span class="help-key">‹ ›</span><span class="help-desc">前/次のレイヤーへ切替（1→2→3→1）</span></div>
-        <div class="help-row"><span class="help-key">●</span><span class="help-desc">透過設定サイクル (不透過→半透過→透過)</span></div>
+        <div class="help-row"><span class="help-key">レイヤー行クリック</span><span class="help-desc">アクティブレイヤー切替</span></div>
+        <div class="help-row"><span class="help-key">名前 ダブルクリック</span><span class="help-desc">レイヤー名を編集（用途を埋め込む）</span></div>
+        <div class="help-row"><span class="help-key">●◐○ クリック</span><span class="help-desc">透過設定サイクル (不透過→半透過→透過)</span></div>
+        <div class="help-row"><span class="help-key">Shift+L</span><span class="help-desc">次のアクティブレイヤーへ切替</span></div>
+        <div class="help-row"><span class="help-key">Shift+1/2/3</span><span class="help-desc">フォーカス/選択中をレイヤー1〜3へ移動</span></div>
+        <div class="help-row"><span class="help-key">⚠ 非表示中</span><span class="help-desc">アクティブレイヤーが透過状態の警告</span></div>
+      </div>
+      <div class="help-section">
+        <h4>その他</h4>
         <div class="help-row"><span class="help-key">s</span><span class="help-desc">自動レイアウト（力指向グラフ）</span></div>
         <div class="help-row"><span class="help-key">r</span><span class="help-desc">ゾーンリサイズモード</span></div>
       </div>
@@ -447,8 +476,8 @@ const cmdStats=document.getElementById('cmd-stats');
 const toastEl=document.getElementById('toast');
 const palette=document.getElementById('palette');
 const paletteGrid=document.getElementById('palette-grid');
-const layerNameLbl=document.getElementById('layer-name-lbl');
-const layerOpacityBtn=document.getElementById('layer-opacity-btn');
+const layerPanel=document.getElementById('layer-panel');
+const activeWarn=document.getElementById('active-warn');
 
 // ── Toast ──────────────────────────────────────────────────────────────────
 let toastTimer=null;
@@ -517,12 +546,58 @@ function updateCmd(){
 // ── Layer system ──────────────────────────────────────────────────────────
 function getActiveLayer(){return S.layers.find(l=>l.id===S.activeLayerId)||S.layers[0];}
 function updateLayerUI(){
-  const layer=getActiveLayer();
-  layerNameLbl.textContent=layer.name;
   const icons={opaque:'●',semi:'◐',transparent:'○'};
-  const cls={opaque:'layer-opacity-opaque',semi:'layer-opacity-semi',transparent:'layer-opacity-transparent'};
-  layerOpacityBtn.textContent=icons[layer.opacity]||'●';
-  layerOpacityBtn.className=`tb-btn layer-opacity-btn ${cls[layer.opacity]||''}`;
+  const opCls={opaque:'op-opaque',semi:'op-semi',transparent:'op-transparent'};
+  const counts={};
+  S.layers.forEach(l=>{counts[l.id]=0;});
+  Object.values(S.ideas).forEach(o=>{counts[o.layer||1]=(counts[o.layer||1]||0)+1;});
+  S.zones.forEach(z=>{counts[z.layer||1]=(counts[z.layer||1]||0)+1;});
+  layerPanel.innerHTML='';
+  S.layers.forEach(layer=>{
+    const row=document.createElement('div');
+    row.className='layer-row'+(layer.id===S.activeLayerId?' active':'');
+    row.dataset.layerId=layer.id;
+    row.innerHTML=`
+      <span class="layer-row-name" title="ダブルクリックで名前変更">${esc(layer.name)}</span>
+      <span class="layer-row-count">${counts[layer.id]||0}</span>
+      <button class="layer-row-op ${opCls[layer.opacity]||''}" title="透過設定: ${ {opaque:'不透過',semi:'半透過',transparent:'透過'}[layer.opacity]}">${icons[layer.opacity]||'●'}</button>
+    `;
+    // click row → switch layer
+    row.addEventListener('click',e=>{
+      if(e.target.classList.contains('layer-row-op'))return;
+      if(e.target.classList.contains('layer-row-name-edit'))return;
+      if(layer.id!==S.activeLayerId){
+        S.activeLayerId=layer.id;clearFocus();applyLayerOpacity();updateLayerUI();save();
+      }
+    });
+    // double-click name → rename
+    row.querySelector('.layer-row-name').addEventListener('dblclick',e=>{
+      e.stopPropagation();
+      const sp=e.target;
+      const inp=document.createElement('input');
+      inp.className='layer-row-name-edit';inp.value=layer.name;inp.maxLength=20;
+      sp.replaceWith(inp);inp.focus();inp.select();
+      const done=()=>{
+        layer.name=inp.value.trim()||layer.name;
+        updateLayerUI();save();
+      };
+      inp.addEventListener('blur',done);
+      inp.addEventListener('keydown',ev=>{
+        if(ev.key==='Enter'||ev.key==='Escape'){ev.preventDefault();inp.blur();}
+      });
+    });
+    // op button → cycle opacity
+    row.querySelector('.layer-row-op').addEventListener('click',e=>{
+      e.stopPropagation();
+      layer.opacity={opaque:'semi',semi:'transparent',transparent:'opaque'}[layer.opacity]||'opaque';
+      applyLayerOpacity();updateLayerUI();save();
+    });
+    layerPanel.appendChild(row);
+  });
+  // active warn
+  const activeLayer=getActiveLayer();
+  if(activeLayer.opacity==='transparent')activeWarn.classList.add('show');
+  else activeWarn.classList.remove('show');
 }
 function applyLayerOpacity(){
   const OPACITY={opaque:'',semi:'0.35',transparent:'0'};
@@ -561,6 +636,21 @@ function cycleLayerOpacity(){
   layer.opacity={opaque:'semi',semi:'transparent',transparent:'opaque'}[layer.opacity]||'opaque';
   applyLayerOpacity();updateLayerUI();save();
   toast(`${layer.name}: ${{opaque:'不透過',semi:'半透過',transparent:'透過'}[layer.opacity]||layer.opacity}`);
+}
+function moveToLayer(layerId){
+  const targets=S.moveSelection.length>0
+    ?S.moveSelection
+    :(S.focused?[S.focused]:[]);
+  if(!targets.length){toast('対象を選択してください');return;}
+  pushHistory();
+  let n=0;
+  targets.forEach(({kind,id})=>{
+    if(kind==='idea'){const o=S.ideas[id];if(o){o.layer=layerId;n++;}}
+    else if(kind==='zone'){const z=S.zones.find(z=>z.id===id);if(z){z.layer=layerId;n++;}}
+  });
+  applyLayerOpacity();updateLayerUI();save();
+  const lname=S.layers.find(l=>l.id===layerId)?.name||'Layer';
+  toast(`${n}件を「${lname}」へ移動`);
 }
 
 // ── Arrow markers ─────────────────────────────────────────────────────────
@@ -698,7 +788,7 @@ function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').repl
 function createIdeaAt(bx,by,text=''){
   const id=S.nextId++;
   S.ideas[id]={id,x:snapV(bx),y:snapV(by),text,color:'purple',layer:S.activeLayerId};
-  renderIdea(id);applyLayerOpacity();save();
+  renderIdea(id);applyLayerOpacity();updateLayerUI();save();
   return id;
 }
 
@@ -772,7 +862,7 @@ function createZone(){
   const c=viewCenter();
   const id='z'+S.nextId++;
   S.zones.push({id,x:snapV(c.x-140),y:snapV(c.y-95),w:280,h:190,label:'Zone',color:null,layer:S.activeLayerId});
-  renderZone(id);applyLayerOpacity();save();focus('zone',id);
+  renderZone(id);applyLayerOpacity();updateLayerUI();save();focus('zone',id);
 }
 function startZoneEdit(id){
   const z=S.zones.find(z=>z.id===id);if(!z)return;
@@ -1261,6 +1351,15 @@ document.addEventListener('keydown',e=>{
       minimapEl.style.display=S.minimapVisible?'':'none';
       toast('ミニマップ: '+(S.minimapVisible?'表示':'非表示'));return;
     }
+    // Shift+1/2/3: move focused/selected objects to layer N
+    if(e.key==='!'||e.key==='@'||e.key==='#'||['1','2','3'].includes(e.key)){
+      const map={'!':1,'@':2,'#':3,'1':1,'2':2,'3':3};
+      const lid=map[e.key];
+      if(lid&&S.layers.find(l=>l.id===lid))moveToLayer(lid);
+      return;
+    }
+    // Shift+L: cycle active layer
+    if(e.key==='L'){switchLayer(1);return;}
   }
   // move mode arrows
   if(S.cmdMode==='move'&&['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)){
@@ -1419,7 +1518,7 @@ function deleteSelected(){
     const el=getEl('zone',id);if(el)el.remove();
     S.connectors=S.connectors.filter(c=>!(c.from.id===id&&c.from.kind==='zone')&&!(c.to.id===id&&c.to.kind==='zone'));
   }
-  redrawConnectors();save();updateCmd();
+  redrawConnectors();save();updateCmd();updateLayerUI();
 }
 
 // ── Pan / Zoom ────────────────────────────────────────────────────────────
@@ -1479,13 +1578,10 @@ document.getElementById('theme-btn').addEventListener('click',()=>{
   S.theme=S.theme==='dark'?'light':'dark';
   document.body.classList.toggle('light',S.theme==='light');save();
 });
-document.getElementById('layer-prev-btn').addEventListener('click',()=>switchLayer(-1));
-document.getElementById('layer-next-btn').addEventListener('click',()=>switchLayer(1));
 const helpModal=document.getElementById('help-modal');
 document.getElementById('help-btn').addEventListener('click',()=>helpModal.classList.add('show'));
 document.getElementById('help-close').addEventListener('click',()=>helpModal.classList.remove('show'));
 helpModal.addEventListener('click',e=>{if(e.target===helpModal)helpModal.classList.remove('show');});
-layerOpacityBtn.addEventListener('click',cycleLayerOpacity);
 document.getElementById('export-btn').addEventListener('click',()=>{
   const data={ideas:S.ideas,connectors:S.connectors,zones:S.zones,
     layers:S.layers,activeLayerId:S.activeLayerId,nextId:S.nextId,
