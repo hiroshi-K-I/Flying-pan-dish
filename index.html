@@ -341,7 +341,7 @@ body{
         <div class="help-row"><span class="help-key">Arrow</span><span class="help-desc">近くのオブジェクトへ移動</span></div>
         <div class="help-row"><span class="help-key">Enter</span><span class="help-desc">直線で接続</span></div>
         <div class="help-row"><span class="help-key">Shift+Enter</span><span class="help-desc">矢印付き直線で接続</span></div>
-        <div class="help-row"><span class="help-key">g</span><span class="help-desc">架け橋: ヒントで接続先を選択</span></div>
+        <div class="help-row"><span class="help-key">g</span><span class="help-desc">架け橋: ヒントで接続先を選択し、中継アイデアを自動生成</span></div>
       </div>
       <div class="help-section">
         <h4>複数選択 (移動モード)</h4>
@@ -431,6 +431,7 @@ const S={
   hintBuf:'',
   hintReturnToConnect:false,
   hintReturnToMove:false,
+  hintReturnToBridge:false,
   moveSelection:[],
   paletteReturnMode:null,
   layers:[
@@ -522,7 +523,7 @@ function updateCmd(){
   if(S.cmdMode==='move'){
     cmdText.textContent=`移動モード: ${n}件選択中 — g:集合  p:色付け  Arrow:移動  Enter:確定  Esc:解除`;
   } else if(S.cmdMode==='connect'){
-    cmdText.textContent='接続先を選択: Arrow/f で移動  Enter:ライン  Shift+Enter:矢印  Esc:キャンセル';
+    cmdText.textContent='接続先を選択: Arrow/f で移動  Enter:ライン  Shift+Enter:矢印  g:架け橋  Esc:キャンセル';
   } else if(S.cmdMode==='palette'){
     cmdText.textContent='カラー選択: 1-0,q-t で色適用  Esc:キャンセル';
   } else if(S.mode==='edit'){
@@ -607,9 +608,8 @@ function applyLayerOpacity(){
     const lid=o.layer||1;
     const lyr=S.layers.find(l=>l.id===lid);
     const op=lyr?lyr.opacity:'opaque';
-    // opacity applies to ALL layers (including active)
-    el.style.opacity=OPACITY[op];
-    // pointer-events: active layer always interactive, others obey opacity
+    // active layer always 100% visible per spec; other layers follow their opacity setting
+    el.style.opacity=(lid===S.activeLayerId)?'':OPACITY[op];
     el.style.pointerEvents=(lid===S.activeLayerId)?'':(op==='transparent'?'none':'');
   });
   S.zones.forEach(z=>{
@@ -617,7 +617,7 @@ function applyLayerOpacity(){
     const lid=z.layer||1;
     const lyr=S.layers.find(l=>l.id===lid);
     const op=lyr?lyr.opacity:'opaque';
-    el.style.opacity=OPACITY[op];
+    el.style.opacity=(lid===S.activeLayerId)?'':OPACITY[op];
     el.style.pointerEvents=(lid===S.activeLayerId)?'':(op==='transparent'?'none':'');
   });
   // connectors are redrawn to reflect opacity
@@ -1274,9 +1274,10 @@ function connectTo(ep,type){
 }
 
 // ── Hint select ──────────────────────────────────────────────────────────
-function openHintSelect(forConnect,forMove){
+function openHintSelect(forConnect,forMove,forBridge){
   S.hintReturnToConnect=!!forConnect;
   S.hintReturnToMove=!!forMove;
+  S.hintReturnToBridge=!!forBridge;
   S.hintMap={};S.hintBuf='';
   const items=[];
   Object.values(S.ideas).forEach(o=>items.push({kind:'idea',id:o.id}));
@@ -1294,23 +1295,45 @@ function openHintSelect(forConnect,forMove){
 }
 function closeHintSelect(){
   document.querySelectorAll('.hint-label').forEach(l=>l.remove());
-  const wasConnect=S.hintReturnToConnect,wasMove=S.hintReturnToMove;
+  const wasConnect=S.hintReturnToConnect,wasMove=S.hintReturnToMove,wasBridge=S.hintReturnToBridge;
   S.hintMap=null;S.hintBuf='';
-  S.hintReturnToConnect=false;S.hintReturnToMove=false;
-  if(!wasConnect&&!wasMove)S.cmdMode=null;
+  S.hintReturnToConnect=false;S.hintReturnToMove=false;S.hintReturnToBridge=false;
+  if(!wasConnect&&!wasMove&&!wasBridge)S.cmdMode=null;
   updateCmd();
-  return{wasConnect,wasMove};
+  return{wasConnect,wasMove,wasBridge};
 }
 function handleHintKey(ch){
   if(!S.hintMap)return false;
   const upper=ch.toUpperCase();
   const ep=S.hintMap[upper];
   if(!ep)return false;
-  const{wasConnect,wasMove}=closeHintSelect();
-  if(wasConnect){S.cmdMode='connect';connectTo(ep,'line');}
+  const{wasConnect,wasMove,wasBridge}=closeHintSelect();
+  if(wasBridge){createBridge(ep);}
+  else if(wasConnect){S.cmdMode='connect';connectTo(ep,'line');}
   else if(wasMove){S.cmdMode='move';toggleMoveSelect(ep);}
   else focus(ep.kind,ep.id);
   return true;
+}
+function createBridge(toEp){
+  if(!S.connectFrom)return;
+  const from=S.connectFrom;
+  const fromObj=from.kind==='idea'?S.ideas[from.id]:S.zones.find(z=>z.id===from.id);
+  const toObj=toEp.kind==='idea'?S.ideas[toEp.id]:S.zones.find(z=>z.id===toEp.id);
+  if(!fromObj||!toObj){exitConnectMode();return;}
+  pushHistory();
+  // midpoint in board coords
+  const mx=snapV((fromObj.x+(toObj.x||toObj.x))/2);
+  const my=snapV((fromObj.y+(toObj.y||toObj.y))/2);
+  const bridgeId=createIdeaAt(mx,my,'架け橋');
+  S.ideas[bridgeId].color=fromObj.color||'slate';
+  S.ideas[bridgeId].layer=S.activeLayerId;
+  renderIdea(bridgeId);
+  // connect from → bridge → to
+  S.connectors.push({id:'c'+(S.nextId++),from:{kind:from.kind,id:from.id},to:{kind:'idea',id:bridgeId},type:'arrow'});
+  S.connectors.push({id:'c'+(S.nextId++),from:{kind:'idea',id:bridgeId},to:{kind:toEp.kind,id:toEp.id},type:'arrow'});
+  exitConnectMode();redrawConnectors();save();
+  focus('idea',bridgeId);startEdit(bridgeId);
+  toast('架け橋アイデアを作成しました');
 }
 
 // ── Auto layout ──────────────────────────────────────────────────────────
@@ -1543,7 +1566,8 @@ document.addEventListener('keydown',e=>{
     if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)){
       e.preventDefault();navigateFocus(e.key);return;
     }
-    if(e.key==='f'){openHintSelect(true,false);return;}
+    if(e.key==='f'){openHintSelect(true,false,false);return;}
+    if(e.key==='g'){openHintSelect(false,false,true);return;}
     if(e.key==='Enter'){
       if(S.focused)connectTo({...S.focused},e.shiftKey?'arrow':'line');
       return;
@@ -1611,8 +1635,8 @@ document.addEventListener('keydown',e=>{
       }
       break;
     case 'g':{
-      // bridge: start connect mode, hint will close into connect
-      if(S.focused){startConnectMode();openHintSelect(true,false);}
+      // bridge: select target via hint, then auto-create midpoint idea
+      if(S.focused){startConnectMode();openHintSelect(false,false,true);}
       break;
     }
     case 'Enter':
