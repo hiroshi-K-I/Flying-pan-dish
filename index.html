@@ -390,6 +390,7 @@ body{
       </div>
       <div class="help-section">
         <h4>レイヤー</h4>
+        <div class="help-row"><span class="help-key">ALL クリック</span><span class="help-desc">全レイヤーを同時に表示・操作するALLモード</span></div>
         <div class="help-row"><span class="help-key">レイヤー行クリック</span><span class="help-desc">アクティブレイヤー切替（他レイヤーは閲覧のみ）</span></div>
         <div class="help-row"><span class="help-key">名前 ダブルクリック</span><span class="help-desc">レイヤー名を編集（用途を埋め込む）</span></div>
         <div class="help-row"><span class="help-key">●◐○ クリック</span><span class="help-desc">透過設定サイクル (不透過→半透過→透過)</span></div>
@@ -536,6 +537,7 @@ function getEl(kind,id){return document.querySelector(`.${kind}[data-id="${id}"]
 
 // ── Focus ──────────────────────────────────────────────────────────────────
 function onActiveLayer(kind,id){
+  if(isAllLayer())return true;
   const obj=kind==='idea'?S.ideas[id]:S.zones.find(z=>z.id===id);
   return obj?(obj.layer||1)===S.activeLayerId:true;
 }
@@ -581,7 +583,9 @@ function updateCmd(){
 }
 
 // ── Layer system ──────────────────────────────────────────────────────────
+function isAllLayer(){return S.activeLayerId==='all';}
 function getActiveLayer(){return S.layers.find(l=>l.id===S.activeLayerId)||S.layers[0];}
+function layerForNew(){return isAllLayer()?1:S.activeLayerId;}
 function updateLayerUI(){
   const icons={opaque:'●',semi:'◐',transparent:'○'};
   const opCls={opaque:'op-opaque',semi:'op-semi',transparent:'op-transparent'};
@@ -590,6 +594,18 @@ function updateLayerUI(){
   Object.values(S.ideas).forEach(o=>{counts[o.layer||1]=(counts[o.layer||1]||0)+1;});
   S.zones.forEach(z=>{counts[z.layer||1]=(counts[z.layer||1]||0)+1;});
   layerPanel.innerHTML='';
+  // ALL pseudo-layer row
+  {
+    const total=Object.keys(S.ideas).length+S.zones.length;
+    const row=document.createElement('div');
+    row.className='layer-row'+(isAllLayer()?' active':'');
+    row.innerHTML=`<span class="layer-row-name" style="color:var(--accent);font-weight:700">ALL</span><span class="layer-row-count">${total}</span>`;
+    row.title='全レイヤーを同時に表示・操作';
+    row.addEventListener('click',()=>{
+      if(!isAllLayer()){S.activeLayerId='all';clearFocus();applyLayerOpacity();updateLayerUI();save();}
+    });
+    layerPanel.appendChild(row);
+  }
   S.layers.forEach(layer=>{
     const row=document.createElement('div');
     row.className='layer-row'+(layer.id===S.activeLayerId?' active':'');
@@ -631,40 +647,55 @@ function updateLayerUI(){
     });
     layerPanel.appendChild(row);
   });
-  // active warn
-  const activeLayer=getActiveLayer();
-  if(activeLayer.opacity==='transparent')activeWarn.classList.add('show');
-  else activeWarn.classList.remove('show');
+  // active warn (not shown in ALL mode)
+  if(isAllLayer()){activeWarn.classList.remove('show');}
+  else{const activeLayer=getActiveLayer();
+    if(activeLayer.opacity==='transparent')activeWarn.classList.add('show');
+    else activeWarn.classList.remove('show');}
+
 }
 function applyLayerOpacity(){
   const OPACITY={opaque:'',semi:'0.35',transparent:'0'};
+  const all=isAllLayer();
   Object.values(S.ideas).forEach(o=>{
     const el=getEl('idea',o.id);if(!el)return;
     const lid=o.layer||1;
     const lyr=S.layers.find(l=>l.id===lid);
     const op=lyr?lyr.opacity:'opaque';
-    // active layer always 100% visible per spec; other layers follow their opacity setting
-    el.style.opacity=(lid===S.activeLayerId)?'':OPACITY[op];
-    el.style.pointerEvents=(lid===S.activeLayerId)?'':'none';
+    if(all){
+      el.style.opacity=OPACITY[op];
+      el.style.pointerEvents=op==='transparent'?'none':'';
+    } else {
+      el.style.opacity=(lid===S.activeLayerId)?'':OPACITY[op];
+      el.style.pointerEvents=(lid===S.activeLayerId)?'':'none';
+    }
   });
   S.zones.forEach(z=>{
     const el=getEl('zone',z.id);if(!el)return;
     const lid=z.layer||1;
     const lyr=S.layers.find(l=>l.id===lid);
     const op=lyr?lyr.opacity:'opaque';
-    el.style.opacity=(lid===S.activeLayerId)?'':OPACITY[op];
-    el.style.pointerEvents=(lid===S.activeLayerId)?'':'none';
+    if(all){
+      el.style.opacity=OPACITY[op];
+      el.style.pointerEvents=op==='transparent'?'none':'';
+    } else {
+      el.style.opacity=(lid===S.activeLayerId)?'':OPACITY[op];
+      el.style.pointerEvents=(lid===S.activeLayerId)?'':'none';
+    }
   });
   // connectors are redrawn to reflect opacity
   redrawConnectors();
 }
 function switchLayer(dir){
-  const idx=S.layers.findIndex(l=>l.id===S.activeLayerId);
-  const next=(idx+dir+S.layers.length)%S.layers.length;
-  S.activeLayerId=S.layers[next].id;
+  // cycle order: ALL → Layer1 → Layer2 → Layer3 → ALL ...
+  const order=['all',...S.layers.map(l=>l.id)];
+  const idx=order.indexOf(S.activeLayerId);
+  const next=(idx+dir+order.length)%order.length;
+  S.activeLayerId=order[next];
   clearFocus();applyLayerOpacity();updateLayerUI();save();
-  const op=S.layers[next].opacity;
-  toast(`${S.layers[next].name} (${{opaque:'不透過',semi:'半透過',transparent:'透過'}[op]||op})`);
+  if(isAllLayer()){toast('ALL — 全レイヤーを表示・操作');}
+  else{const lyr=S.layers[next-1];const op=lyr.opacity;
+    toast(`${lyr.name} (${{opaque:'不透過',semi:'半透過',transparent:'透過'}[op]||op})`);}
   updateCmd();
 }
 function cycleLayerOpacity(){
@@ -838,7 +869,7 @@ function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').repl
 
 function createIdeaAt(bx,by,text=''){
   const id=S.nextId++;
-  S.ideas[id]={id,x:snapV(bx),y:snapV(by),text,color:'purple',layer:S.activeLayerId};
+  S.ideas[id]={id,x:snapV(bx),y:snapV(by),text,color:'purple',layer:layerForNew()};
   renderIdea(id);applyLayerOpacity();updateLayerUI();save();
   return id;
 }
@@ -912,7 +943,7 @@ function renderZone(id){
 function createZone(){
   const c=viewCenter();
   const id='z'+S.nextId++;
-  S.zones.push({id,x:snapV(c.x-140),y:snapV(c.y-95),w:280,h:190,label:'Zone',color:null,layer:S.activeLayerId});
+  S.zones.push({id,x:snapV(c.x-140),y:snapV(c.y-95),w:280,h:190,label:'Zone',color:null,layer:layerForNew()});
   renderZone(id);applyLayerOpacity();updateLayerUI();save();focus('zone',id);
 }
 function startZoneEdit(id){
@@ -1211,7 +1242,8 @@ function arrangeWithRelations(items,cx,cy){
 
 // context-aware gather: 'a' key
 function smartGather(){
-  const allIds=Object.keys(S.ideas).map(Number);
+  const allIds=Object.keys(S.ideas).map(Number)
+    .filter(id=>isAllLayer()||(S.ideas[id].layer||1)===S.activeLayerId);
   if(!allIds.length){toast('アイデアがありません');return;}
   const makeItems=ids=>ids
     .map(id=>{const o=S.ideas[id],el=getEl('idea',id);return(o&&el)?{o}:null;})
@@ -1326,8 +1358,8 @@ function openHintSelect(forConnect,forMove){
   S.hintReturnToMove=!!forMove;
   S.hintMap={};S.hintBuf='';
   const items=[];
-  Object.values(S.ideas).forEach(o=>{if((o.layer||1)===S.activeLayerId)items.push({kind:'idea',id:o.id});});
-  S.zones.forEach(z=>{if((z.layer||1)===S.activeLayerId)items.push({kind:'zone',id:z.id});});
+  Object.values(S.ideas).forEach(o=>{if(isAllLayer()||(o.layer||1)===S.activeLayerId)items.push({kind:'idea',id:o.id});});
+  S.zones.forEach(z=>{if(isAllLayer()||(z.layer||1)===S.activeLayerId)items.push({kind:'zone',id:z.id});});
   items.forEach((ep,i)=>{
     if(i>=HINT_CHARS.length)return;
     const ch=HINT_CHARS[i];S.hintMap[ch]=ep;
@@ -1361,7 +1393,8 @@ function handleHintKey(ch){
 
 // ── Auto layout ──────────────────────────────────────────────────────────
 function autoLayout(){
-  const ids=Object.keys(S.ideas).map(Number);
+  const ids=Object.keys(S.ideas).map(Number)
+    .filter(id=>isAllLayer()||(S.ideas[id].layer||1)===S.activeLayerId);
   if(ids.length<2){toast('アイデアが2件以上必要です');return;}
   pushHistory();
 
@@ -1514,6 +1547,8 @@ function runSearch(q){
   if(!q){searchCount.textContent='';return[];}
   const hits=[];
   Object.values(S.ideas).forEach(o=>{
+    // respect layer isolation: skip other-layer ideas unless ALL
+    if(!isAllLayer()&&(o.layer||1)!==S.activeLayerId)return;
     const el=getEl('idea',o.id);if(!el)return;
     if((o.text||'').toLowerCase().includes(q)){el.classList.add('search-hit');hits.push(o);}
     else el.classList.add('dimmed');
@@ -1774,8 +1809,8 @@ document.addEventListener('keydown',e=>{
 
 function navigateFocus(key){
   const all=[];
-  Object.values(S.ideas).forEach(o=>{if((o.layer||1)===S.activeLayerId)all.push({kind:'idea',id:o.id,x:o.x,y:o.y});});
-  S.zones.forEach(z=>{if((z.layer||1)===S.activeLayerId)all.push({kind:'zone',id:z.id,x:z.x,y:z.y});});
+  Object.values(S.ideas).forEach(o=>{if(isAllLayer()||(o.layer||1)===S.activeLayerId)all.push({kind:'idea',id:o.id,x:o.x,y:o.y});});
+  S.zones.forEach(z=>{if(isAllLayer()||(z.layer||1)===S.activeLayerId)all.push({kind:'zone',id:z.id,x:z.x,y:z.y});});
   if(!all.length)return;
   if(!S.focused){focus(all[0].kind,all[0].id);return;}
   const cur=S.focused.kind==='idea'?S.ideas[S.focused.id]:S.zones.find(z=>z.id===S.focused.id);
