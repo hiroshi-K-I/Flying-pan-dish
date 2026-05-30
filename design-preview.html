@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>Design Patterns Preview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=DM+Sans:wght@400;500;600&family=Geist:wght@400;500;600&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#111;font-family:sans-serif;padding:40px 20px;display:flex;flex-direction:column;gap:60px}
+h1{color:#fff;font-size:13px;letter-spacing:.1em;text-transform:uppercase;opacity:.4;text-align:center;margin-bottom:-40px}
+.section{display:flex;flex-direction:column;gap:0}
+.section-label{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;padding:0 0 14px 4px}
+.board{border-radius:12px;padding:28px;display:flex;gap:16px;align-items:flex-start;position:relative;overflow:hidden;min-height:260px}
+.header{display:flex;align-items:center;gap:8px;padding:0 0 20px 0;border-bottom:1px solid;margin-bottom:20px}
+.app-name{font-weight:700;font-size:13px}
+.badge{font-size:9px;font-weight:700;padding:2px 7px;border-radius:20px;letter-spacing:.08em}
+.card{border-radius:8px;padding:12px 14px 12px 18px;width:200px;flex-shrink:0;position:relative;cursor:pointer}
+.card::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;border-radius:8px 0 0 8px}
+.card-title{font-size:13px;font-weight:600;line-height:1.4}
+.card-body{font-size:11px;line-height:1.5;margin-top:4px}
+.connector{position:absolute;pointer-events:none}
+.cmdline{font-size:11px;padding:8px 16px;border-top:1px solid;margin-top:20px}
+.dot-grid{position:absolute;inset:0;background-image:radial-gradient(circle,currentColor 1px,transparent 1px);background-size:24px 24px;opacity:.12;pointer-events:none}
+
+/* ── A: VOID ── deep space, Inter, cool dark ── */
+.a .board{background:#080c14;color:#c9d1d9}
+.a .dot-grid{color:#58a6ff}
+.a .header{border-color:#1c2333}
+.a .app-name{font-family:'Inter',sans-serif;color:#e6edf3;font-size:12px;letter-spacing:.02em}
+.a .badge{background:#161b22;border:1px solid #30363d;color:#8b949e;font-family:'Inter',sans-serif}
+.a .card{background:#0d1117;border:1px solid #21262d;font-family:'Inter',sans-serif;box-shadow:0 0 0 0 transparent}
+.a .card:first-child{border-color:#388bfd;box-shadow:0 0 0 2px #1f6feb}
+.a .card::before{background:#7c3aed}
+.a .card:nth-child(2)::before{background:#0ea5e9}
+.a .card:nth-child(3)::before{background:#10b981}
+.a .card-title{color:#e6edf3}
+.a .card-body{color:#8b949e}
+.a .cmdline{border-color:#21262d;color:#6e7681;font-family:'Inter',sans-serif;background:#0d1117}
+.a .section-label{color:#388bfd;font-family:'Inter',sans-serif}
+
+/* ── B: PAPER ── warm light, DM Sans, Notion-ish ── */
+.b .board{background:#faf9f7;color:#37352f}
+.b .dot-grid{color:#a0998e;opacity:.2}
+.b .header{border-color:#e8e5e0}
+.b .app-name{font-family:'DM Sans',sans-serif;color:#1a1a1a;font-size:13px;letter-spacing:-.01em}
+.b .badge{background:#f0ece6;border:1px solid #ddd8d0;color:#6f6860;font-family:'DM Sans',sans-serif}
+.b .card{background:#fff;border:1px solid #e5e1db;font-family:'DM Sans',sans-serif;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+.b .card:first-child{border-color:#9b8afb;box-shadow:0 0 0 2px #ede9fe}
+.b .card::before{background:#9b8afb}
+.b .card:nth-child(2)::before{background:#fb923c}
+.b .card:nth-child(3)::before{background:#34d399}
+.b .card-title{color:#1a1a1a;font-size:13px}
+.b .card-body{color:#6f6860}
+.b .cmdline{border-color:#e8e5e0;color:#a09890;font-family:'DM Sans',sans-serif;background:#faf9f7}
+.b .section-label{color:#9b8afb;font-family:'DM Sans',sans-serif}
+
+/* ── C: OBSIDIAN ── deep purple-black, Space Grotesk, vivid accents ── */
+.c .board{background:#13111c;color:#c4c2d4}
+.c .dot-grid{color:#7c3aed;opacity:.18}
+.c .header{border-color:#1e1b2e}
+.c .app-name{font-family:'Space Grotesk',sans-serif;color:#e2e0f0;font-size:13px;font-weight:700;letter-spacing:-.02em}
+.c .badge{background:#1e1b2e;border:1px solid #2e2a42;color:#7c74a8;font-family:'Space Grotesk',sans-serif}
+.c .card{background:#1a1727;border:1px solid #2a2640;font-family:'Space Grotesk',sans-serif;box-shadow:none}
+.c .card:first-child{border-color:#a78bfa;box-shadow:0 0 14px rgba(139,92,246,.2)}
+.c .card::before{background:#a78bfa}
+.c .card:nth-child(2)::before{background:#f472b6}
+.c .card:nth-child(3)::before{background:#34d399}
+.c .card-title{color:#e2e0f0;font-size:13px}
+.c .card-body{color:#7c74a8}
+.c .cmdline{border-color:#1e1b2e;color:#4e4870;font-family:'Space Grotesk',sans-serif;background:#13111c}
+.c .section-label{color:#a78bfa;font-family:'Space Grotesk',sans-serif}
+
+/* ── D: LINEAR ── near-black, Geist, minimal warm dark ── */
+.d .board{background:#111110;color:#d4d0c8}
+.d .dot-grid{color:#5c5a52;opacity:.25}
+.d .header{border-color:#1c1b19}
+.d .app-name{font-family:'Geist',sans-serif;color:#ededeb;font-size:12px;letter-spacing:-.01em;font-weight:600}
+.d .badge{background:#1c1b19;border:1px solid #2a2925;color:#706e68;font-family:'Geist',sans-serif}
+.d .card{background:#18171a;border:1px solid #252422;font-family:'Geist',sans-serif}
+.d .card:first-child{border-color:#f97316;box-shadow:0 0 0 1px #f97316}
+.d .card::before{background:#f97316}
+.d .card:nth-child(2)::before{background:#60a5fa}
+.d .card:nth-child(3)::before{background:#a78bfa}
+.d .card-title{color:#ededeb;font-size:12px;font-weight:500}
+.d .card-body{color:#706e68;font-size:11px}
+.d .cmdline{border-color:#1c1b19;color:#4a4845;font-family:'Geist',sans-serif;background:#111110}
+.d .section-label{color:#f97316;font-family:'Geist',sans-serif}
+</style>
+</head>
+<body>
+
+<h1>Idea Board — Design Patterns</h1>
+
+<!-- A: VOID -->
+<div class="section a">
+  <div class="section-label">A — VOID &nbsp;·&nbsp; Inter &nbsp;·&nbsp; Deep Space Dark</div>
+  <div class="board">
+    <div class="dot-grid"></div>
+    <div style="flex:1;display:flex;flex-direction:column">
+      <div class="header">
+        <span class="app-name">Idea Board</span>
+        <span class="badge">SELECT</span>
+        <span style="font-size:11px;color:#6e7681;font-family:Inter,sans-serif;margin-left:4px">100%</span>
+      </div>
+      <div style="display:flex;gap:14px;flex:1">
+        <div class="card">
+          <div class="card-title">プロジェクト概要</div>
+          <div class="card-body">目標と背景を整理する</div>
+        </div>
+        <div class="card">
+          <div class="card-title">技術スタック</div>
+          <div class="card-body">フロントエンドの選定</div>
+        </div>
+        <div class="card">
+          <div class="card-title">リリース計画</div>
+          <div class="card-body">マイルストーンを設定</div>
+        </div>
+      </div>
+      <div class="cmdline">i:アイデア &nbsp; z:ゾーン &nbsp; c:接続 &nbsp; f:選択 &nbsp; s:レイアウト &nbsp; /:検索</div>
+    </div>
+  </div>
+</div>
+
+<!-- B: PAPER -->
+<div class="section b">
+  <div class="section-label">B — PAPER &nbsp;·&nbsp; DM Sans &nbsp;·&nbsp; Warm Light</div>
+  <div class="board">
+    <div class="dot-grid"></div>
+    <div style="flex:1;display:flex;flex-direction:column">
+      <div class="header">
+        <span class="app-name">Idea Board</span>
+        <span class="badge">SELECT</span>
+        <span style="font-size:11px;color:#a09890;font-family:'DM Sans',sans-serif;margin-left:4px">100%</span>
+      </div>
+      <div style="display:flex;gap:14px;flex:1">
+        <div class="card">
+          <div class="card-title">プロジェクト概要</div>
+          <div class="card-body">目標と背景を整理する</div>
+        </div>
+        <div class="card">
+          <div class="card-title">技術スタック</div>
+          <div class="card-body">フロントエンドの選定</div>
+        </div>
+        <div class="card">
+          <div class="card-title">リリース計画</div>
+          <div class="card-body">マイルストーンを設定</div>
+        </div>
+      </div>
+      <div class="cmdline">i:アイデア &nbsp; z:ゾーン &nbsp; c:接続 &nbsp; f:選択 &nbsp; s:レイアウト &nbsp; /:検索</div>
+    </div>
+  </div>
+</div>
+
+<!-- C: OBSIDIAN -->
+<div class="section c">
+  <div class="section-label">C — OBSIDIAN &nbsp;·&nbsp; Space Grotesk &nbsp;·&nbsp; Purple Dark</div>
+  <div class="board">
+    <div class="dot-grid"></div>
+    <div style="flex:1;display:flex;flex-direction:column">
+      <div class="header">
+        <span class="app-name">Idea Board</span>
+        <span class="badge">SELECT</span>
+        <span style="font-size:11px;color:#4e4870;font-family:'Space Grotesk',sans-serif;margin-left:4px">100%</span>
+      </div>
+      <div style="display:flex;gap:14px;flex:1">
+        <div class="card">
+          <div class="card-title">プロジェクト概要</div>
+          <div class="card-body">目標と背景を整理する</div>
+        </div>
+        <div class="card">
+          <div class="card-title">技術スタック</div>
+          <div class="card-body">フロントエンドの選定</div>
+        </div>
+        <div class="card">
+          <div class="card-title">リリース計画</div>
+          <div class="card-body">マイルストーンを設定</div>
+        </div>
+      </div>
+      <div class="cmdline">i:アイデア &nbsp; z:ゾーン &nbsp; c:接続 &nbsp; f:選択 &nbsp; s:レイアウト &nbsp; /:検索</div>
+    </div>
+  </div>
+</div>
+
+<!-- D: LINEAR -->
+<div class="section d">
+  <div class="section-label">D — LINEAR &nbsp;·&nbsp; Geist &nbsp;·&nbsp; Warm Near-Black</div>
+  <div class="board">
+    <div class="dot-grid"></div>
+    <div style="flex:1;display:flex;flex-direction:column">
+      <div class="header">
+        <span class="app-name">Idea Board</span>
+        <span class="badge">SELECT</span>
+        <span style="font-size:11px;color:#4a4845;font-family:'Geist',sans-serif;margin-left:4px">100%</span>
+      </div>
+      <div style="display:flex;gap:14px;flex:1">
+        <div class="card">
+          <div class="card-title">プロジェクト概要</div>
+          <div class="card-body">目標と背景を整理する</div>
+        </div>
+        <div class="card">
+          <div class="card-title">技術スタック</div>
+          <div class="card-body">フロントエンドの選定</div>
+        </div>
+        <div class="card">
+          <div class="card-title">リリース計画</div>
+          <div class="card-body">マイルストーンを設定</div>
+        </div>
+      </div>
+      <div class="cmdline">i:アイデア &nbsp; z:ゾーン &nbsp; c:接続 &nbsp; f:選択 &nbsp; s:レイアウト &nbsp; /:検索</div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
