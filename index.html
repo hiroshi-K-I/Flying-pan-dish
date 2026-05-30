@@ -1702,6 +1702,7 @@ document.addEventListener('keydown',e=>{
     if(e.key==='p'){openPalette();return;}
     if(e.key==='f'||e.key==='m'){openHintSelect(false,true);return;}
     if(e.key==='Enter'){cancelMoveSelect();return;}
+    if(e.key==='x'||e.key==='Delete'){deleteSelected();return;}
     return;
   }
   // connect mode arrows
