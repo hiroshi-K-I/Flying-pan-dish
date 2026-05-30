@@ -455,6 +455,7 @@ const S={
   cmdMode:null,
   resizeZoneId:null,
   connectFrom:null,
+  _pendingConnectType:null,
   hintMap:null,
   hintBuf:'',
   hintReturnToConnect:false,
@@ -895,13 +896,13 @@ function startEdit(id){
       const el2=getEl('idea',id);
       const h=el2?el2.offsetHeight:90;
       const o2=S.ideas[id];
-      const newId=createIdeaAt(o2?o2.x:bx,o2?o2.y+h+20:200);
+      const vc=viewCenter();
+      const newId=createIdeaAt(o2?o2.x:vc.x-108,o2?o2.y+h+20:vc.y);
       focus('idea',newId);startEdit(newId);
     }
   });
   focus('idea',id);updateCmd();
 }
-let bx=0;// fallback for cascade
 function confirmEdit(id,text){
   const el=getEl('idea',id);
   const ta=el?el.querySelector('.idea-edit'):null;
@@ -1109,6 +1110,8 @@ function startRubberBand(e){
     rubberBand.style.display='none';rbStart=null;
     if(rw<5||rh<5)return;
     Object.values(S.ideas).forEach(o=>{
+      // respect layer isolation: skip other-layer ideas unless in ALL mode
+      if(!isAllLayer()&&(o.layer||1)!==S.activeLayerId)return;
       const p=b2s(o.x+108,o.y+45);
       const px=p.x-wr.left,py=p.y-wr.top;
       if(px>=rx&&px<=rx+rw&&py>=ry&&py<=ry+rh){
@@ -1123,6 +1126,8 @@ function startRubberBand(e){
 
 // ── Multi-select ──────────────────────────────────────────────────────────
 function toggleMoveSelect(ep){
+  // never select objects on a non-active layer (unless in ALL mode)
+  if(!onActiveLayer(ep.kind,ep.id))return;
   if(S.cmdMode!=='move'){S.cmdMode='move';S.moveSelection=[];}
   const idx=S.moveSelection.findIndex(s=>s.kind===ep.kind&&+s.id==+ep.id);
   const el=getEl(ep.kind,ep.id);
@@ -1331,7 +1336,7 @@ function exitConnectMode(){
     const el=getEl(S.connectFrom.kind,S.connectFrom.id);
     if(el)el.classList.remove('connecting');
   }
-  S.connectFrom=null;S.cmdMode=null;
+  S.connectFrom=null;S.cmdMode=null;S._pendingConnectType=null;
   connectLineEl.setAttribute('display','none');
   updateCmd();
 }
