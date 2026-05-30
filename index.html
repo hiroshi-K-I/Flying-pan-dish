@@ -257,6 +257,24 @@ body{
 }
 .pal-swatch:hover{transform:scale(1.15);border-color:rgba(255,255,255,.5)}
 
+/* ── Search bar ── */
+#search-bar{
+  position:fixed;top:48px;left:50%;transform:translateX(-50%);
+  display:none;align-items:center;gap:8px;
+  background:var(--surface);border:1px solid var(--card-border);border-radius:8px;
+  padding:6px 10px;z-index:450;box-shadow:0 8px 24px rgba(0,0,0,.4);
+}
+#search-bar.show{display:flex}
+#search-bar .search-icon{font-size:12px;color:var(--muted)}
+#search-input{
+  background:var(--bg);border:1px solid var(--card-border);border-radius:5px;
+  color:var(--text);font:inherit;font-size:12px;padding:4px 8px;width:300px;outline:none;
+}
+#search-input:focus{border-color:var(--accent)}
+#search-count{font-size:10px;color:var(--muted);min-width:46px;text-align:right;font-variant-numeric:tabular-nums}
+.idea.dimmed{opacity:.16 !important;filter:grayscale(.7)}
+.idea.search-hit{box-shadow:0 0 0 2px var(--green),0 0 16px rgba(63,185,80,.6);border-color:var(--green)}
+
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
 .connecting{animation:pulse 1s infinite}
 </style>
@@ -269,7 +287,7 @@ body{
   <span id="mode-badge">SELECT</span>
   <span id="zoom-disp" title="クリックでリセット">100%</span>
   <div class="hdr-sep"></div>
-  <span id="key-hints">i:アイデア  z:ゾーン  c:接続  f:選択  s:レイアウト  p:色  Shift+クリック:複数選択</span>
+  <span id="key-hints">i:アイデア  z:ゾーン  c:接続  f:選択  s:レイアウト  /:検索  p:色  Shift+クリック:複数選択</span>
   <div id="layer-panel" title="クリック:切替  ●◐○:透過設定  名前ダブルクリック:編集"></div>
   <span id="active-warn" title="アクティブレイヤーが透過になっています">⚠ 非表示中</span>
   <button class="tb-btn" id="theme-btn" title="テーマ切替">◑</button>
@@ -302,6 +320,13 @@ body{
 
 <div id="toast"></div>
 
+<div id="search-bar">
+  <span class="search-icon">🔍</span>
+  <input id="search-input" type="text" autocomplete="off" spellcheck="false"
+         placeholder="アイデアを検索…  Enter:ヒットにフィット  Esc:閉じる">
+  <span id="search-count"></span>
+</div>
+
 <div id="help-modal">
   <div id="help-inner">
     <div id="help-header">
@@ -331,6 +356,7 @@ body{
         <div class="help-row"><span class="help-key">0</span><span class="help-desc">ズームリセット (100%)</span></div>
         <div class="help-row"><span class="help-key">v → Enter</span><span class="help-desc">全体フィット</span></div>
         <div class="help-row"><span class="help-key">v → 1〜9</span><span class="help-desc">テンキー配置ゾームへ移動</span></div>
+        <div class="help-row"><span class="help-key">/</span><span class="help-desc">アイデア検索（ヒット強調・Enterでフィット）</span></div>
         <div class="help-row"><span class="help-key">Shift+M</span><span class="help-desc">ミニマップ 表示/非表示</span></div>
         <div class="help-row"><span class="help-key">Shift+G</span><span class="help-desc">グリッドスナップ ON/OFF</span></div>
       </div>
@@ -372,7 +398,7 @@ body{
       </div>
       <div class="help-section">
         <h4>その他</h4>
-        <div class="help-row"><span class="help-key">s</span><span class="help-desc">自動レイアウト: 接続=IDEAL距離、非接続=適度に分散+重力</span></div>
+        <div class="help-row"><span class="help-key">s</span><span class="help-desc">自動レイアウト: 中心ハブから接続をたどり放射状に展開</span></div>
         <div class="help-row"><span class="help-key">a</span><span class="help-desc">スマート整列: 複数選択→選択のみ / フォーカスあり→そこを中心に全件 / なし→画面中央に全件</span></div>
         <div class="help-row"><span class="help-key">r</span><span class="help-desc">ゾーンリサイズモード</span></div>
       </div>
@@ -480,6 +506,9 @@ const palette=document.getElementById('palette');
 const paletteGrid=document.getElementById('palette-grid');
 const layerPanel=document.getElementById('layer-panel');
 const activeWarn=document.getElementById('active-warn');
+const searchBar=document.getElementById('search-bar');
+const searchInput=document.getElementById('search-input');
+const searchCount=document.getElementById('search-count');
 
 // ── Toast ──────────────────────────────────────────────────────────────────
 let toastTimer=null;
@@ -533,7 +562,7 @@ function updateCmd(){
   } else if(S.hintMap){
     cmdText.textContent='選択: キーを入力してください';
   } else {
-    cmdText.textContent='i:アイデア  z:ゾーン  c:接続  f:選択  m:移動モード  s:レイアウト  p:色  u:元に戻す  x:削除';
+    cmdText.textContent='i:アイデア  z:ゾーン  c:接続  f:選択  m:移動  s:レイアウト  /:検索  p:色  u:戻す  x:削除';
   }
   if(S.mode==='edit')modeBadge.textContent='EDIT';
   else if(S.resizeZoneId)modeBadge.textContent='RESIZE';
@@ -1064,19 +1093,25 @@ function cancelMoveSelect(){
   });
   S.moveSelection=[];S.cmdMode=null;updateCmd();
 }
-// shared: arrange items in a grid centered at (cx,cy) with animation
-function arrangeGrid(items,cx,cy){
-  if(!items.length)return;
+// clamp a board coordinate so the card stays inside the board (keeps it on the minimap)
+function clampToBoard(v,size){return Math.max(20,Math.min(BOARD_SIZE-size-20,v));}
+// place an ordered list of idea objects on a grid whose CENTER OF MASS is exactly (cx,cy)
+// (correcting for partial last rows prevents the cluster from drifting on repeated calls)
+function placeGridCentered(objs,cx,cy){
   const CARD_W=216,CARD_H=96,GAP=18;
-  const cols=Math.max(1,Math.ceil(Math.sqrt(items.length)));
-  const rows=Math.ceil(items.length/cols);
-  // sort by spatial order (top-left → bottom-right) to preserve rough grouping
-  items.sort((a,b)=>(a.o.y*1.5+a.o.x)-(b.o.y*1.5+b.o.x));
-  items.forEach(({o},i)=>{
-    const col=i%cols,row=Math.floor(i/cols);
-    const tx=cx+(col-(cols-1)/2)*(CARD_W+GAP);
-    const ty=cy+(row-(rows-1)/2)*(CARD_H+GAP);
-    o.x=snapV(tx);o.y=snapV(ty);
+  const n=objs.length;
+  const cols=Math.max(1,Math.ceil(Math.sqrt(n)));
+  // raw grid positions relative to (0,0)
+  const raw=objs.map((o,i)=>({
+    rx:(i%cols)*(CARD_W+GAP),
+    ry:Math.floor(i/cols)*(CARD_H+GAP)
+  }));
+  // shift so the placed centroid lands on (cx,cy)
+  const mx=raw.reduce((s,p)=>s+p.rx,0)/n;
+  const my=raw.reduce((s,p)=>s+p.ry,0)/n;
+  objs.forEach((o,i)=>{
+    o.x=clampToBoard(snapV(cx+raw[i].rx-mx),CARD_W);
+    o.y=clampToBoard(snapV(cy+raw[i].ry-my),CARD_H);
     const el=getEl('idea',o.id);
     if(el){
       el.style.transition='left .52s cubic-bezier(.22,.61,.36,1),top .52s cubic-bezier(.22,.61,.36,1)';
@@ -1086,6 +1121,13 @@ function arrangeGrid(items,cx,cy){
   });
   setTimeout(()=>redrawConnectors(),620);
   save();
+}
+// shared: arrange items in a grid centered at (cx,cy) with animation
+function arrangeGrid(items,cx,cy){
+  if(!items.length)return;
+  // sort by spatial order (top-left → bottom-right) to preserve rough grouping
+  items.sort((a,b)=>(a.o.y*1.5+a.o.x)-(b.o.y*1.5+b.o.x));
+  placeGridCentered(items.map(({o})=>o),cx,cy);
 }
 
 function gatherMoveSelection(){
@@ -1104,7 +1146,6 @@ function gatherMoveSelection(){
 // relationship-aware grid: connected components cluster together, same-color singletons group
 function arrangeWithRelations(items,cx,cy){
   if(!items.length)return;
-  const CARD_W=216,CARD_H=96,GAP=18;
   // build adjacency among the given items
   const idSet=new Set(items.map(({o})=>o.id));
   const adj={};
@@ -1143,23 +1184,8 @@ function arrangeWithRelations(items,cx,cy){
   const multi=sorted.filter(c=>c.length>1).sort((a,b)=>b.length-a.length);
   const singles=sorted.filter(c=>c.length===1).sort((a,b)=>(a[0].color||'').localeCompare(b[0].color||''));
   const finalOrder=[...multi.flat(),...singles.flat()];
-  // grid layout
-  const cols=Math.max(1,Math.ceil(Math.sqrt(finalOrder.length)));
-  const rows=Math.ceil(finalOrder.length/cols);
-  finalOrder.forEach((o,i)=>{
-    const col=i%cols,row=Math.floor(i/cols);
-    const tx=cx+(col-(cols-1)/2)*(CARD_W+GAP);
-    const ty=cy+(row-(rows-1)/2)*(CARD_H+GAP);
-    o.x=snapV(tx);o.y=snapV(ty);
-    const el=getEl('idea',o.id);
-    if(el){
-      el.style.transition='left .52s cubic-bezier(.22,.61,.36,1),top .52s cubic-bezier(.22,.61,.36,1)';
-      el.style.left=o.x+'px';el.style.top=o.y+'px';
-      setTimeout(()=>{if(el)el.style.transition='';},620);
-    }
-  });
-  setTimeout(()=>redrawConnectors(),620);
-  save();
+  // grid layout with center-of-mass correction (no drift on repeated calls)
+  placeGridCentered(finalOrder,cx,cy);
 }
 
 // context-aware gather: 'a' key
@@ -1423,29 +1449,38 @@ function autoLayout(){
     assign(r,a0,a0+span);a0+=span;
   });
 
-  // Polar → cartesian, centered on current view center
-  const vc=viewCenter();
+  // Polar → cartesian, centered on the board center (stable, always on minimap)
+  const cx=BOARD_SIZE/2,cy=BOARD_SIZE/2;
   ids.forEach(id=>{
     const r=ringR[depth[id]];
-    pos[id]={x:vc.x+r*Math.cos(angle[id]),y:vc.y+r*Math.sin(angle[id])};
+    pos[id]={x:cx+r*Math.cos(angle[id]),y:cy+r*Math.sin(angle[id])};
   });
 
   // Apply with a smooth "expanding" animation
   ids.forEach(id=>{
-    S.ideas[id].x=snapV(pos[id].x-108);S.ideas[id].y=snapV(pos[id].y-45);
+    S.ideas[id].x=clampToBoard(snapV(pos[id].x-108),216);
+    S.ideas[id].y=clampToBoard(snapV(pos[id].y-45),96);
     const el=getEl('idea',id);if(!el)return;
     el.style.transition='left .8s cubic-bezier(.16,.84,.3,1),top .8s cubic-bezier(.16,.84,.3,1)';
     el.style.left=S.ideas[id].x+'px';el.style.top=S.ideas[id].y+'px';
     setTimeout(()=>{if(el)el.style.transition='';},900);
   });
   setTimeout(()=>{redrawConnectors();fitAll();},920);
-  save();toast('星図レイアウトを適用しました');
+  save();toast('自動レイアウトを適用しました');
 }
 
 // ── Viewport ──────────────────────────────────────────────────────────────
-function fitAll(){
-  const items=[...Object.values(S.ideas),...S.zones];
-  if(!items.length)return;
+function fitBounds(minX,minY,maxX,maxY,maxZoom){
+  const PAD=80,wr=boardWrap.getBoundingClientRect();
+  const contentW=maxX-minX,contentH=maxY-minY;
+  const zx=(wr.width-PAD*2)/Math.max(1,contentW);
+  const zy=(wr.height-PAD*2)/Math.max(1,contentH);
+  S.zoom=Math.min(Math.max(Math.min(zx,zy),.25),maxZoom||2.5);
+  S.pan.x=(wr.width-contentW*S.zoom)/2-minX*S.zoom;
+  S.pan.y=(wr.height-contentH*S.zoom)/2-minY*S.zoom;
+  applyXform();
+}
+function boundsOf(items){
   let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
   items.forEach(o=>{
     const el=getEl(o.id&&typeof o.id==='number'?'idea':'zone',o.id);
@@ -1453,14 +1488,13 @@ function fitAll(){
     minX=Math.min(minX,o.x);minY=Math.min(minY,o.y);
     maxX=Math.max(maxX,o.x+w);maxY=Math.max(maxY,o.y+h);
   });
-  const PAD=80,wr=boardWrap.getBoundingClientRect();
-  const contentW=maxX-minX,contentH=maxY-minY;
-  const zx=(wr.width-PAD*2)/Math.max(1,contentW);
-  const zy=(wr.height-PAD*2)/Math.max(1,contentH);
-  S.zoom=Math.min(Math.max(Math.min(zx,zy),.25),2.5);
-  S.pan.x=(wr.width-contentW*S.zoom)/2-minX*S.zoom;
-  S.pan.y=(wr.height-contentH*S.zoom)/2-minY*S.zoom;
-  applyXform();
+  return{minX,minY,maxX,maxY};
+}
+function fitAll(){
+  const items=[...Object.values(S.ideas),...S.zones];
+  if(!items.length)return;
+  const b=boundsOf(items);
+  fitBounds(b.minX,b.minY,b.maxX,b.maxY);
 }
 function zoomToSection(key){
   const gp=GRID_POS[key];if(!gp)return;
@@ -1470,6 +1504,48 @@ function zoomToSection(key){
   S.pan.y=-(BOARD_SIZE*gp.ry-wr.height/2);
   applyXform();
 }
+
+// ── Search / filter ────────────────────────────────────────────────────────
+function clearSearchHighlight(){
+  document.querySelectorAll('.idea.dimmed,.idea.search-hit')
+    .forEach(e=>e.classList.remove('dimmed','search-hit'));
+}
+function runSearch(q){
+  q=(q||'').trim().toLowerCase();
+  clearSearchHighlight();
+  if(!q){searchCount.textContent='';return[];}
+  const hits=[];
+  Object.values(S.ideas).forEach(o=>{
+    const el=getEl('idea',o.id);if(!el)return;
+    if((o.text||'').toLowerCase().includes(q)){el.classList.add('search-hit');hits.push(o);}
+    else el.classList.add('dimmed');
+  });
+  searchCount.textContent=hits.length?`${hits.length}件`:'0件';
+  return hits;
+}
+function openSearch(){
+  searchBar.classList.add('show');
+  searchInput.value='';searchCount.textContent='';
+  searchInput.focus();
+}
+function closeSearch(){
+  searchBar.classList.remove('show');
+  clearSearchHighlight();searchInput.blur();
+}
+searchInput.addEventListener('input',e=>runSearch(e.target.value));
+searchInput.addEventListener('keydown',e=>{
+  e.stopPropagation();
+  if(e.key==='Escape'){e.preventDefault();closeSearch();return;}
+  if(e.key==='Enter'){
+    e.preventDefault();
+    const hits=runSearch(searchInput.value);
+    if(hits.length){
+      const b=boundsOf(hits);
+      fitBounds(b.minX,b.minY,b.maxX,b.maxY,1.4);
+      if(hits.length===1)focus('idea',hits[0].id);
+    } else toast('一致するアイデアがありません');
+  }
+});
 
 // ── Keyboard ─────────────────────────────────────────────────────────────
 let viewMode=false;
@@ -1648,6 +1724,7 @@ document.addEventListener('keydown',e=>{
     case 'p':openPalette();break;
     case 's':autoLayout();break;
     case 'a':smartGather();break;
+    case '/':e.preventDefault();openSearch();break;
     case 'u':undo();break;
     case 'v':viewMode=true;toast('ビューモード: Enter:フィット  1-9:位置移動  Esc:キャンセル');break;
     case 'r':
