@@ -295,6 +295,7 @@ body{
   <span id="active-warn" title="このレイヤーは他レイヤーからHiddenになっています">⚠ Hidden</span>
   <button class="tb-btn" id="theme-btn" title="テーマ切替">◑</button>
   <button class="tb-btn" id="export-btn">JSON</button>
+  <button class="tb-btn" id="export-md-btn" title="アウトライン (Markdown) で書き出し">MD</button>
   <label class="tb-btn" style="cursor:pointer" title="JSONインポート">読込<input type="file" accept=".json" id="import-file" style="display:none"></label>
   <button class="tb-btn" id="help-btn" title="ショートカット一覧">?</button>
 </div>
@@ -406,6 +407,7 @@ body{
         <div class="help-row"><span class="help-key">s</span><span class="help-desc">自動レイアウト: 中心ハブから接続をたどり放射状に展開</span></div>
         <div class="help-row"><span class="help-key">a</span><span class="help-desc">スマート整列: 複数選択→選択のみ / フォーカスあり→そこを中心に全件 / なし→画面中央に全件</span></div>
         <div class="help-row"><span class="help-key">r</span><span class="help-desc">ゾーンリサイズモード</span></div>
+        <div class="help-row"><span class="help-key">MD ボタン</span><span class="help-desc">接続構造をアウトライン(Markdown)で書き出し</span></div>
       </div>
     </div>
   </div>
@@ -1947,6 +1949,57 @@ document.getElementById('export-btn').addEventListener('click',()=>{
   const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);
   a.download='ideaboard.json';a.click();URL.revokeObjectURL(a.href);
+});
+
+// ── Markdown / outline export ──
+// Walks the connector graph as a forest and emits a nested bullet list,
+// mirroring the radial-layout traversal (hubs first → following connections).
+// Honors the active layer scope (ALL = everything, otherwise current layer).
+function ideaLabel(id){
+  const t=(S.ideas[id].text||'').trim();
+  return t?t.split('\n')[0].replace(/^#+\s*/,'').trim()||'(無題)':'(無題)';
+}
+function buildMarkdown(){
+  const ideas=Object.values(S.ideas)
+    .filter(o=>isAllLayer()||(o.layer||1)===S.activeLayerId);
+  const lines=[];
+  const scopeName=isAllLayer()?'ALL':(getActiveLayer()?.name||'Layer');
+  lines.push('# Idea Board — '+scopeName,'');
+  if(ideas.length===0){lines.push('_アイデアがありません_');return lines.join('\n')+'\n';}
+
+  const idSet=new Set(ideas.map(o=>o.id));
+  const out={},degree={},seen=new Set();
+  ideas.forEach(o=>{out[o.id]=[];degree[o.id]=0;});
+  S.connectors.forEach(c=>{
+    if(c.from.kind==='idea'&&c.to.kind==='idea'&&idSet.has(c.from.id)&&idSet.has(c.to.id)){
+      out[c.from.id].push(c.to.id);
+      degree[c.from.id]++;degree[c.to.id]++;
+    }
+  });
+  const walk=(id,depth)=>{
+    if(seen.has(id))return;
+    seen.add(id);
+    lines.push('  '.repeat(depth)+'- '+ideaLabel(id));
+    out[id].filter(n=>!seen.has(n)).forEach(n=>walk(n,depth+1));
+  };
+  // roots = connected ideas, hubs (highest degree) first
+  Object.values(S.ideas)
+    .filter(o=>idSet.has(o.id)&&degree[o.id]>0)
+    .sort((a,b)=>degree[b.id]-degree[a.id])
+    .forEach(o=>{if(!seen.has(o.id))walk(o.id,0);});
+  // orphans (no connections) listed flat at the end
+  const orphans=ideas.filter(o=>degree[o.id]===0);
+  if(orphans.length){
+    if(seen.size)lines.push('');
+    orphans.forEach(o=>lines.push('- '+ideaLabel(o.id)));
+  }
+  return lines.join('\n')+'\n';
+}
+document.getElementById('export-md-btn').addEventListener('click',()=>{
+  const blob=new Blob([buildMarkdown()],{type:'text/markdown'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+  a.download='ideaboard.md';a.click();URL.revokeObjectURL(a.href);
+  toast('Markdown を書き出しました');
 });
 document.getElementById('import-file').addEventListener('change',e=>{
   const f=e.target.files[0];if(!f)return;
