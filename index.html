@@ -367,7 +367,8 @@ body{
         <div class="help-row"><span class="help-key">Arrow</span><span class="help-desc">近くのオブジェクトへ移動</span></div>
         <div class="help-row"><span class="help-key">Enter</span><span class="help-desc">直線で接続</span></div>
         <div class="help-row"><span class="help-key">Shift+Enter</span><span class="help-desc">矢印付き直線で接続</span></div>
-        <div class="help-row"><span class="help-key">g</span><span class="help-desc">架け橋: ヒントで接続先を選択し、中継アイデアを自動生成</span></div>
+        <div class="help-row"><span class="help-key">b</span><span class="help-desc">曲線で接続</span></div>
+        <div class="help-row"><span class="help-key">Shift+B</span><span class="help-desc">矢印付き曲線で接続</span></div>
       </div>
       <div class="help-section">
         <h4>複数選択 (移動モード)</h4>
@@ -389,7 +390,7 @@ body{
       </div>
       <div class="help-section">
         <h4>レイヤー</h4>
-        <div class="help-row"><span class="help-key">レイヤー行クリック</span><span class="help-desc">アクティブレイヤー切替</span></div>
+        <div class="help-row"><span class="help-key">レイヤー行クリック</span><span class="help-desc">アクティブレイヤー切替（他レイヤーは閲覧のみ）</span></div>
         <div class="help-row"><span class="help-key">名前 ダブルクリック</span><span class="help-desc">レイヤー名を編集（用途を埋め込む）</span></div>
         <div class="help-row"><span class="help-key">●◐○ クリック</span><span class="help-desc">透過設定サイクル (不透過→半透過→透過)</span></div>
         <div class="help-row"><span class="help-key">Shift+L</span><span class="help-desc">次のアクティブレイヤーへ切替</span></div>
@@ -457,7 +458,6 @@ const S={
   hintBuf:'',
   hintReturnToConnect:false,
   hintReturnToMove:false,
-  hintReturnToBridge:false,
   moveSelection:[],
   paletteReturnMode:null,
   layers:[
@@ -552,7 +552,7 @@ function updateCmd(){
   if(S.cmdMode==='move'){
     cmdText.textContent=`移動モード: ${n}件選択中 — g:集合  p:色付け  Arrow:移動  Enter:確定  Esc:解除`;
   } else if(S.cmdMode==='connect'){
-    cmdText.textContent='接続先を選択: Arrow/f で移動  Enter:ライン  Shift+Enter:矢印  g:架け橋  Esc:キャンセル';
+    cmdText.textContent='接続先を選択: Arrow/f で移動  Enter:直線  Shift+Enter:矢印  b:曲線  Shift+B:曲線矢印  Esc:キャンセル';
   } else if(S.cmdMode==='palette'){
     cmdText.textContent='カラー選択: 1-0,q-t で色適用  Esc:キャンセル';
   } else if(S.mode==='edit'){
@@ -639,7 +639,7 @@ function applyLayerOpacity(){
     const op=lyr?lyr.opacity:'opaque';
     // active layer always 100% visible per spec; other layers follow their opacity setting
     el.style.opacity=(lid===S.activeLayerId)?'':OPACITY[op];
-    el.style.pointerEvents=(lid===S.activeLayerId)?'':(op==='transparent'?'none':'');
+    el.style.pointerEvents=(lid===S.activeLayerId)?'':'none';
   });
   S.zones.forEach(z=>{
     const el=getEl('zone',z.id);if(!el)return;
@@ -647,7 +647,7 @@ function applyLayerOpacity(){
     const lyr=S.layers.find(l=>l.id===lid);
     const op=lyr?lyr.opacity:'opaque';
     el.style.opacity=(lid===S.activeLayerId)?'':OPACITY[op];
-    el.style.pointerEvents=(lid===S.activeLayerId)?'':(op==='transparent'?'none':'');
+    el.style.pointerEvents=(lid===S.activeLayerId)?'':'none';
   });
   // connectors are redrawn to reflect opacity
   redrawConnectors();
@@ -772,13 +772,28 @@ function redrawConnectors(){
     const srcIdea=c.from.kind==='idea'?S.ideas[c.from.id]:null;
     const colorName=srcIdea?.color||'slate';
     const hex=COLOR_HEX[colorName]||'#8b949e';
+    // build path: straight (line/arrow) or quadratic bezier (curve/curve-arrow)
+    let d;
+    if(c.type==='curve'||c.type==='curve-arrow'){
+      // control point: offset perpendicular to the midpoint, 30% of distance
+      const mx=(a.x+b.x)/2,my=(a.y+b.y)/2;
+      const dx=b.x-a.x,dy=b.y-a.y;
+      const len=Math.sqrt(dx*dx+dy*dy)||1;
+      const bend=Math.min(len*0.32,160); // cap curvature so short connectors stay sane
+      // perpendicular direction (always curves the same way: right of travel)
+      const px=-dy/len*bend,py=dx/len*bend;
+      d=`M${a.x},${a.y} Q${mx+px},${my+py} ${b.x},${b.y}`;
+    } else {
+      d=`M${a.x},${a.y} L${b.x},${b.y}`;
+    }
     const path=document.createElementNS('http://www.w3.org/2000/svg','path');
-    path.setAttribute('d',`M${a.x},${a.y} L${b.x},${b.y}`);
+    path.setAttribute('d',d);
     path.setAttribute('stroke',hex);
     path.setAttribute('stroke-width','1.5');
     path.setAttribute('fill','none');
     if(opacity<1)path.setAttribute('opacity',String(opacity));
-    if(c.type==='arrow')path.setAttribute('marker-end',`url(#arr-${colorName})`);
+    if(c.type==='arrow'||c.type==='curve-arrow')
+      path.setAttribute('marker-end',`url(#arr-${colorName})`);
     connG.appendChild(path);
   });
 }
@@ -1300,10 +1315,9 @@ function connectTo(ep,type){
 }
 
 // ── Hint select ──────────────────────────────────────────────────────────
-function openHintSelect(forConnect,forMove,forBridge){
+function openHintSelect(forConnect,forMove){
   S.hintReturnToConnect=!!forConnect;
   S.hintReturnToMove=!!forMove;
-  S.hintReturnToBridge=!!forBridge;
   S.hintMap={};S.hintBuf='';
   const items=[];
   Object.values(S.ideas).forEach(o=>items.push({kind:'idea',id:o.id}));
@@ -1320,45 +1334,23 @@ function openHintSelect(forConnect,forMove,forBridge){
 }
 function closeHintSelect(){
   document.querySelectorAll('.hint-label').forEach(l=>l.remove());
-  const wasConnect=S.hintReturnToConnect,wasMove=S.hintReturnToMove,wasBridge=S.hintReturnToBridge;
+  const wasConnect=S.hintReturnToConnect,wasMove=S.hintReturnToMove;
   S.hintMap=null;S.hintBuf='';
-  S.hintReturnToConnect=false;S.hintReturnToMove=false;S.hintReturnToBridge=false;
-  if(!wasConnect&&!wasMove&&!wasBridge)S.cmdMode=null;
+  S.hintReturnToConnect=false;S.hintReturnToMove=false;
+  if(!wasConnect&&!wasMove)S.cmdMode=null;
   updateCmd();
-  return{wasConnect,wasMove,wasBridge};
+  return{wasConnect,wasMove};
 }
 function handleHintKey(ch){
   if(!S.hintMap)return false;
   const upper=ch.toUpperCase();
   const ep=S.hintMap[upper];
   if(!ep)return false;
-  const{wasConnect,wasMove,wasBridge}=closeHintSelect();
-  if(wasBridge){createBridge(ep);}
-  else if(wasConnect){S.cmdMode='connect';connectTo(ep,'line');}
+  const{wasConnect,wasMove}=closeHintSelect();
+  if(wasConnect){S.cmdMode='connect';connectTo(ep,S._pendingConnectType||'line');}
   else if(wasMove){S.cmdMode='move';toggleMoveSelect(ep);}
   else focus(ep.kind,ep.id);
   return true;
-}
-function createBridge(toEp){
-  if(!S.connectFrom)return;
-  const from=S.connectFrom;
-  const fromObj=from.kind==='idea'?S.ideas[from.id]:S.zones.find(z=>z.id===from.id);
-  const toObj=toEp.kind==='idea'?S.ideas[toEp.id]:S.zones.find(z=>z.id===toEp.id);
-  if(!fromObj||!toObj){exitConnectMode();return;}
-  pushHistory();
-  // midpoint in board coords
-  const mx=snapV((fromObj.x+(toObj.x||toObj.x))/2);
-  const my=snapV((fromObj.y+(toObj.y||toObj.y))/2);
-  const bridgeId=createIdeaAt(mx,my,'架け橋');
-  S.ideas[bridgeId].color=fromObj.color||'slate';
-  S.ideas[bridgeId].layer=S.activeLayerId;
-  renderIdea(bridgeId);
-  // connect from → bridge → to
-  S.connectors.push({id:'c'+(S.nextId++),from:{kind:from.kind,id:from.id},to:{kind:'idea',id:bridgeId},type:'arrow'});
-  S.connectors.push({id:'c'+(S.nextId++),from:{kind:'idea',id:bridgeId},to:{kind:toEp.kind,id:toEp.id},type:'arrow'});
-  exitConnectMode();redrawConnectors();save();
-  focus('idea',bridgeId);startEdit(bridgeId);
-  toast('架け橋アイデアを作成しました');
 }
 
 // ── Auto layout ──────────────────────────────────────────────────────────
@@ -1539,11 +1531,22 @@ searchInput.addEventListener('keydown',e=>{
   if(e.key==='Enter'){
     e.preventDefault();
     const hits=runSearch(searchInput.value);
-    if(hits.length){
-      const b=boundsOf(hits);
-      fitBounds(b.minX,b.minY,b.maxX,b.maxY,1.4);
-      if(hits.length===1)focus('idea',hits[0].id);
-    } else toast('一致するアイデアがありません');
+    if(!hits.length){toast('一致するアイデアがありません');return;}
+    // fit view to hits
+    const b=boundsOf(hits);
+    fitBounds(b.minX,b.minY,b.maxX,b.maxY,1.4);
+    // add all hits to move selection so they can be moved/colored/gathered
+    closeSearch();
+    if(hits.length===1){focus('idea',hits[0].id);}
+    else{
+      S.moveSelection=[];S.cmdMode='move';
+      hits.forEach(o=>{
+        S.moveSelection.push({kind:'idea',id:o.id});
+        const el=getEl('idea',o.id);if(el)el.classList.add('move-selected');
+      });
+      toast(`${hits.length}件を選択しました — g:集合  p:色付け  Arrow:移動  Esc:解除`);
+      updateCmd();
+    }
   }
 });
 
@@ -1664,8 +1667,16 @@ document.addEventListener('keydown',e=>{
     if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)){
       e.preventDefault();navigateFocus(e.key);return;
     }
-    if(e.key==='f'){openHintSelect(true,false,false);return;}
-    if(e.key==='g'){openHintSelect(false,false,true);return;}
+    if(e.key==='f'){
+      S._pendingConnectType=e.shiftKey?'arrow':'line';
+      openHintSelect(true,false);return;
+    }
+    if(e.key==='b'){
+      // curve or curve-arrow via current focus or hint
+      const type=e.shiftKey?'curve-arrow':'curve';
+      if(S.focused)connectTo({...S.focused},type);
+      return;
+    }
     if(e.key==='Enter'){
       if(S.focused)connectTo({...S.focused},e.shiftKey?'arrow':'line');
       return;
@@ -1733,11 +1744,6 @@ document.addEventListener('keydown',e=>{
         toast('リサイズモード: Arrow で変更  Enter で確定');
       }
       break;
-    case 'g':{
-      // bridge: select target via hint, then auto-create midpoint idea
-      if(S.focused){startConnectMode();openHintSelect(false,false,true);}
-      break;
-    }
     case 'Enter':
       if(S.focused){
         if(S.focused.kind==='idea')startEdit(S.focused.id);
