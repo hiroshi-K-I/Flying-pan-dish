@@ -340,7 +340,7 @@ body{
         <div class="help-row"><span class="help-key">z</span><span class="help-desc">新規ゾーン作成</span></div>
         <div class="help-row"><span class="help-key">Enter</span><span class="help-desc">編集モード開始</span></div>
         <div class="help-row"><span class="help-key">Tab</span><span class="help-desc">選択 ↔ 編集モード切替</span></div>
-        <div class="help-row"><span class="help-key">x / Del</span><span class="help-desc">フォーカス中オブジェクトを削除</span></div>
+        <div class="help-row"><span class="help-key">x / Del</span><span class="help-desc">フォーカス中を削除 / 複数選択中は全件削除</span></div>
         <div class="help-row"><span class="help-key">Ctrl+D</span><span class="help-desc">アイデアを複製 (+24,+24)</span></div>
         <div class="help-row"><span class="help-key">u / Ctrl+Z</span><span class="help-desc">元に戻す（最大50ステップ）</span></div>
         <div class="help-row"><span class="help-key">Esc</span><span class="help-desc">モード終了・フォーカス解除</span></div>
@@ -1638,6 +1638,7 @@ document.addEventListener('keydown',e=>{
       e.preventDefault();
       S.moveSelection=[];S.cmdMode='move';
       Object.values(S.ideas).forEach(o=>{
+        if(!isAllLayer()&&(o.layer||1)!==S.activeLayerId)return;
         S.moveSelection.push({kind:'idea',id:o.id});
         const el=getEl('idea',o.id);if(el)el.classList.add('move-selected');
       });
@@ -1832,6 +1833,26 @@ function navigateFocus(key){
 }
 
 function deleteSelected(){
+  // if move selection is active, delete all selected items
+  if(S.moveSelection.length>0){
+    pushHistory();
+    const n=S.moveSelection.length;
+    S.moveSelection.forEach(({kind,id})=>{
+      if(kind==='idea'){
+        delete S.ideas[id];
+        const el=getEl('idea',id);if(el)el.remove();
+        S.connectors=S.connectors.filter(c=>!(+c.from.id==+id&&c.from.kind==='idea')&&!(+c.to.id==+id&&c.to.kind==='idea'));
+      } else if(kind==='zone'){
+        S.zones=S.zones.filter(z=>z.id!==id);
+        const el=getEl('zone',id);if(el)el.remove();
+        S.connectors=S.connectors.filter(c=>!(c.from.id===id&&c.from.kind==='zone')&&!(c.to.id===id&&c.to.kind==='zone'));
+      }
+    });
+    S.moveSelection=[];S.cmdMode=null;clearFocus();
+    redrawConnectors();save();updateCmd();updateLayerUI();
+    toast(`${n}件を削除しました`);
+    return;
+  }
   if(!S.focused)return;
   pushHistory();
   const{kind,id}=S.focused;clearFocus();
