@@ -535,7 +535,13 @@ function snapV(v){return S.snapEnabled?Math.round(v/SNAP)*SNAP:v;}
 function getEl(kind,id){return document.querySelector(`.${kind}[data-id="${id}"]`);}
 
 // ── Focus ──────────────────────────────────────────────────────────────────
+function onActiveLayer(kind,id){
+  const obj=kind==='idea'?S.ideas[id]:S.zones.find(z=>z.id===id);
+  return obj?(obj.layer||1)===S.activeLayerId:true;
+}
 function focus(kind,id){
+  // refuse to focus objects on non-active layers
+  if(!onActiveLayer(kind,id))return;
   clearFocus();
   S.focused={kind,id:+id||id};S.lastFocused={kind,id:+id||id};
   const el=getEl(kind,id);if(el)el.classList.add('focused');
@@ -1320,8 +1326,8 @@ function openHintSelect(forConnect,forMove){
   S.hintReturnToMove=!!forMove;
   S.hintMap={};S.hintBuf='';
   const items=[];
-  Object.values(S.ideas).forEach(o=>items.push({kind:'idea',id:o.id}));
-  S.zones.forEach(z=>items.push({kind:'zone',id:z.id}));
+  Object.values(S.ideas).forEach(o=>{if((o.layer||1)===S.activeLayerId)items.push({kind:'idea',id:o.id});});
+  S.zones.forEach(z=>{if((z.layer||1)===S.activeLayerId)items.push({kind:'zone',id:z.id});});
   items.forEach((ep,i)=>{
     if(i>=HINT_CHARS.length)return;
     const ch=HINT_CHARS[i];S.hintMap[ch]=ep;
@@ -1768,8 +1774,8 @@ document.addEventListener('keydown',e=>{
 
 function navigateFocus(key){
   const all=[];
-  Object.values(S.ideas).forEach(o=>all.push({kind:'idea',id:o.id,x:o.x,y:o.y}));
-  S.zones.forEach(z=>all.push({kind:'zone',id:z.id,x:z.x,y:z.y}));
+  Object.values(S.ideas).forEach(o=>{if((o.layer||1)===S.activeLayerId)all.push({kind:'idea',id:o.id,x:o.x,y:o.y});});
+  S.zones.forEach(z=>{if((z.layer||1)===S.activeLayerId)all.push({kind:'zone',id:z.id,x:z.x,y:z.y});});
   if(!all.length)return;
   if(!S.focused){focus(all[0].kind,all[0].id);return;}
   const cur=S.focused.kind==='idea'?S.ideas[S.focused.id]:S.zones.find(z=>z.id===S.focused.id);
