@@ -1638,6 +1638,7 @@ document.addEventListener('keydown',e=>{
       e.preventDefault();
       S.moveSelection=[];S.cmdMode='move';
       Object.values(S.ideas).forEach(o=>{
+        if(!isAllLayer()&&(o.layer||1)!==S.activeLayerId)return;
         S.moveSelection.push({kind:'idea',id:o.id});
         const el=getEl('idea',o.id);if(el)el.classList.add('move-selected');
       });
