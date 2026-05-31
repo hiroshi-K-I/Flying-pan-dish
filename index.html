@@ -164,6 +164,8 @@ body{
 .idea.move-selected{border-color:var(--amber);box-shadow:0 0 0 2px var(--amber)}
 .idea-title{font-size:13px;font-weight:600;color:var(--text);line-height:1.4;word-break:break-all}
 .idea-body{font-size:11px;color:var(--muted);line-height:1.45;margin-top:3px;word-break:break-all;white-space:pre-wrap}
+.idea-img{display:block;width:100%;max-height:200px;object-fit:contain;border-radius:3px;margin-top:6px}
+.idea.has-img{width:260px;max-width:320px}
 .idea-edit{
   width:100%;background:none;border:none;outline:none;color:var(--text);
   font:inherit;font-size:13px;line-height:1.5;resize:none;min-height:48px;
@@ -867,9 +869,10 @@ function renderIdea(id){
   el.style.left=o.x+'px';el.style.top=o.y+'px';
   if(S.mode==='edit'&&el.classList.contains('editing'))return;
   const lines=(o.text||'').split('\n');
-  const title=lines[0].replace(/^#+\s*/,'')||'(無題)';
+  const title=lines[0].replace(/^#+\s*/,'')||(o.img?'':'(無題)');
   const body=lines.slice(1,6).join('\n');
-  el.innerHTML=`<div class="idea-title">${esc(title)}</div>${body?`<div class="idea-body">${esc(body)}</div>`:''}`;
+  el.classList.toggle('has-img',!!o.img);
+  el.innerHTML=`${title?`<div class="idea-title">${esc(title)}</div>`:''}${body?`<div class="idea-body">${esc(body)}</div>`:''}${o.img?`<img class="idea-img" src="${o.img}" draggable="false">`:''}`;
   if(S.focused&&S.focused.kind==='idea'&&+S.focused.id===+id)el.classList.add('focused');
   if(S.moveSelection.find(s=>s.kind==='idea'&&+s.id===+id))el.classList.add('move-selected');
 }
@@ -1968,12 +1971,18 @@ function buildMarkdown(){
   if(ideas.length===0){lines.push('_アイデアがありません_');return lines.join('\n')+'\n';}
 
   const idSet=new Set(ideas.map(o=>o.id));
-  const out={},degree={},seen=new Set();
-  ideas.forEach(o=>{out[o.id]=[];degree[o.id]=0;});
+  // out[id]: children to visit; inDeg[id]: directed in-degree (arrows only)
+  const out={},inDeg={},seen=new Set();
+  ideas.forEach(o=>{out[o.id]=[];inDeg[o.id]=0;});
   S.connectors.forEach(c=>{
-    if(c.from.kind==='idea'&&c.to.kind==='idea'&&idSet.has(c.from.id)&&idSet.has(c.to.id)){
-      out[c.from.id].push(c.to.id);
-      degree[c.from.id]++;degree[c.to.id]++;
+    if(c.from.kind!=='idea'||c.to.kind!=='idea')return;
+    if(!idSet.has(c.from.id)||!idSet.has(c.to.id))return;
+    const directed=c.type==='arrow'||c.type==='curve-arrow';
+    out[c.from.id].push(c.to.id);
+    if(directed){
+      inDeg[c.to.id]++;          // only directed edges raise in-degree
+    } else {
+      out[c.to.id].push(c.from.id); // undirected: also add reverse edge
     }
   });
   const walk=(id,depth)=>{
@@ -1982,13 +1991,16 @@ function buildMarkdown(){
     lines.push('  '.repeat(depth)+'- '+ideaLabel(id));
     out[id].filter(n=>!seen.has(n)).forEach(n=>walk(n,depth+1));
   };
-  // roots = connected ideas, hubs (highest degree) first
-  Object.values(S.ideas)
-    .filter(o=>idSet.has(o.id)&&degree[o.id]>0)
-    .sort((a,b)=>degree[b.id]-degree[a.id])
+  // roots = nodes with no incoming directed edges, sorted by total out-degree desc
+  const connected=ideas.filter(o=>out[o.id].length>0||inDeg[o.id]>0);
+  connected
+    .filter(o=>inDeg[o.id]===0)
+    .sort((a,b)=>out[b.id].length-out[a.id].length)
     .forEach(o=>{if(!seen.has(o.id))walk(o.id,0);});
+  // catch remaining connected nodes not yet visited (cycles or islands)
+  connected.forEach(o=>{if(!seen.has(o.id))walk(o.id,0);});
   // orphans (no connections) listed flat at the end
-  const orphans=ideas.filter(o=>degree[o.id]===0);
+  const orphans=ideas.filter(o=>out[o.id].length===0&&inDeg[o.id]===0);
   if(orphans.length){
     if(seen.size)lines.push('');
     orphans.forEach(o=>lines.push('- '+ideaLabel(o.id)));
@@ -2051,6 +2063,29 @@ function rerenderAll(){
   applyLayerOpacity();buildArrowMarkers();redrawConnectors();
   updateLayerUI();updateCmd();
 }
+
+// ── Image paste (Ctrl+V) ──────────────────────────────────────────────────
+document.addEventListener('paste',e=>{
+  if(S.mode==='edit')return; // don't intercept when typing in a textarea
+  const items=[...(e.clipboardData?.items||[])];
+  const imgItem=items.find(it=>it.type.startsWith('image/'));
+  if(!imgItem)return;
+  e.preventDefault();
+  const file=imgItem.getAsFile();
+  if(!file)return;
+  const reader=new FileReader();
+  reader.onload=ev=>{
+    const dataUrl=ev.target.result;
+    const vc=viewCenter();
+    pushHistory();
+    const id=S.nextId++;
+    S.ideas[id]={id,x:snapV(vc.x-130),y:snapV(vc.y-80),text:'',img:dataUrl,color:'slate',layer:layerForNew()};
+    renderIdea(id);applyLayerOpacity();updateLayerUI();save();
+    focus('idea',id);
+    toast('画像を貼り付けました');
+  };
+  reader.readAsDataURL(file);
+});
 
 // ── Init ──────────────────────────────────────────────────────────────────
 function init(){
