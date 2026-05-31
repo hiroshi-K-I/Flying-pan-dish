@@ -742,11 +742,12 @@ function buildArrowMarkers(){
     const hex=COLOR_HEX[name];
     const m=document.createElementNS('http://www.w3.org/2000/svg','marker');
     m.setAttribute('id','arr-'+name);
-    m.setAttribute('markerWidth','8');m.setAttribute('markerHeight','6');
-    m.setAttribute('refX','7');m.setAttribute('refY','3');
-    m.setAttribute('orient','auto');
-    const p=document.createElementNS('http://www.w3.org/2000/svg','polygon');
-    p.setAttribute('points','0 0,8 3,0 6');p.setAttribute('fill',hex);
+    m.setAttribute('markerWidth','9');m.setAttribute('markerHeight','7');
+    m.setAttribute('refX','8');m.setAttribute('refY','3.5');
+    m.setAttribute('orient','auto-start-reverse');
+    m.setAttribute('markerUnits','userSpaceOnUse');
+    const p=document.createElementNS('http://www.w3.org/2000/svg','path');
+    p.setAttribute('d','M0,0 L9,3.5 L0,7 L2.2,3.5 Z');p.setAttribute('fill',hex);
     m.appendChild(p);svgDefs.appendChild(m);
   });
 }
@@ -804,6 +805,19 @@ function layerOpacityValue(layerId){
   const op=lyr?lyr.opacity:'opaque';
   return{opaque:1,semi:0.35,transparent:0}[op]??1;
 }
+// keep connectors glued to their nodes while a CSS move-transition plays
+let _connAnimUntil=0,_connAnimRunning=false;
+function animateConnectors(ms){
+  _connAnimUntil=Math.max(_connAnimUntil,performance.now()+ms);
+  if(_connAnimRunning)return;
+  _connAnimRunning=true;
+  const step=()=>{
+    redrawConnectors();
+    if(performance.now()<_connAnimUntil){requestAnimationFrame(step);}
+    else{_connAnimRunning=false;redrawConnectors();}
+  };
+  requestAnimationFrame(step);
+}
 function redrawConnectors(){
   connG.innerHTML='';
   S.connectors.forEach(c=>{
@@ -821,33 +835,39 @@ function redrawConnectors(){
     const toRect=toEl.getBoundingClientRect();
     const fromCenter={x:fromRect.left+fromRect.width/2,y:fromRect.top+fromRect.height/2};
     const toCenter={x:toRect.left+toRect.width/2,y:toRect.top+toRect.height/2};
-    const a=rectExitPoint(fromRect,toCenter);
-    const b=rectExitPoint(toRect,fromCenter);
     const srcIdea=c.from.kind==='idea'?S.ideas[c.from.id]:null;
     const colorName=srcIdea?.color||'slate';
     const hex=COLOR_HEX[colorName]||'#8b949e';
+    const arrow=c.type==='arrow'||c.type==='curve-arrow';
     // build path: straight (line/arrow) or quadratic bezier (curve/curve-arrow)
     let d;
     if(c.type==='curve'||c.type==='curve-arrow'){
-      // control point: offset perpendicular to the midpoint, 30% of distance
-      const mx=(a.x+b.x)/2,my=(a.y+b.y)/2;
-      const dx=b.x-a.x,dy=b.y-a.y;
-      const len=Math.sqrt(dx*dx+dy*dy)||1;
-      const bend=Math.min(len*0.32,160); // cap curvature so short connectors stay sane
-      // perpendicular direction (always curves the same way: right of travel)
+      // control point: perpendicular offset from the midpoint of the centers,
+      // proportional to distance so arcs look consistent at any length.
+      const mx=(fromCenter.x+toCenter.x)/2,my=(fromCenter.y+toCenter.y)/2;
+      const dx=toCenter.x-fromCenter.x,dy=toCenter.y-fromCenter.y;
+      const len=Math.hypot(dx,dy)||1;
+      const bend=Math.min(len*0.22,140); // gentler arc, capped for long links
       const px=-dy/len*bend,py=dx/len*bend;
-      d=`M${a.x},${a.y} Q${mx+px},${my+py} ${b.x},${b.y}`;
+      const cp={x:mx+px,y:my+py};
+      // exit points aim toward the control point so the curve leaves each box
+      // tangentially — no kink at the border, and the arrow lines up.
+      const a=rectExitPoint(fromRect,cp);
+      const b=rectExitPoint(toRect,cp);
+      d=`M${a.x},${a.y} Q${cp.x},${cp.y} ${b.x},${b.y}`;
     } else {
+      const a=rectExitPoint(fromRect,toCenter);
+      const b=rectExitPoint(toRect,fromCenter);
       d=`M${a.x},${a.y} L${b.x},${b.y}`;
     }
     const path=document.createElementNS('http://www.w3.org/2000/svg','path');
     path.setAttribute('d',d);
     path.setAttribute('stroke',hex);
     path.setAttribute('stroke-width','1.5');
+    path.setAttribute('stroke-linecap','round');
     path.setAttribute('fill','none');
     if(opacity<1)path.setAttribute('opacity',String(opacity));
-    if(c.type==='arrow'||c.type==='curve-arrow')
-      path.setAttribute('marker-end',`url(#arr-${colorName})`);
+    if(arrow)path.setAttribute('marker-end',`url(#arr-${colorName})`);
     connG.appendChild(path);
   });
 }
@@ -1213,7 +1233,7 @@ function placeGridCentered(objs,cx,cy){
       setTimeout(()=>{if(el)el.style.transition='';},620);
     }
   });
-  setTimeout(()=>redrawConnectors(),620);
+  animateConnectors(640);
   save();
 }
 // shared: arrange items in a grid centered at (cx,cy) with animation
@@ -1538,7 +1558,8 @@ function autoLayout(){
     el.style.left=S.ideas[id].x+'px';el.style.top=S.ideas[id].y+'px';
     setTimeout(()=>{if(el)el.style.transition='';},900);
   });
-  setTimeout(()=>{redrawConnectors();fitAll();},920);
+  animateConnectors(920);
+  setTimeout(()=>{fitAll();},920);
   save();toast('自動レイアウトを適用しました');
 }
 
