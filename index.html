@@ -842,13 +842,14 @@ function redrawConnectors(){
     // build path: straight (line/arrow) or quadratic bezier (curve/curve-arrow)
     let d;
     if(c.type==='curve'||c.type==='curve-arrow'){
-      // control point: perpendicular offset from the midpoint of the centers,
-      // proportional to distance so arcs look consistent at any length.
       const mx=(fromCenter.x+toCenter.x)/2,my=(fromCenter.y+toCenter.y)/2;
       const dx=toCenter.x-fromCenter.x,dy=toCenter.y-fromCenter.y;
       const len=Math.hypot(dx,dy)||1;
-      const bend=Math.min(len*0.22,140); // gentler arc, capped for long links
-      const px=-dy/len*bend,py=dx/len*bend;
+      // bend scales with misalignment: zero when the nodes line up on an
+      // axis (dx≈0 or dy≈0 → straight), growing as they go diagonal.
+      const bend=Math.min(Math.min(Math.abs(dx),Math.abs(dy))*0.65,170);
+      // perpendicular offset, flipped so a left→right link arches upward.
+      const px=dy/len*bend,py=-dx/len*bend;
       const cp={x:mx+px,y:my+py};
       // exit points aim toward the control point so the curve leaves each box
       // tangentially — no kink at the border, and the arrow lines up.
@@ -1777,8 +1778,8 @@ document.addEventListener('keydown',e=>{
       S._pendingConnectType=e.shiftKey?'arrow':'line';
       openHintSelect(true,false);return;
     }
-    if(e.key==='b'){
-      // curve or curve-arrow via current focus or hint
+    if(e.key==='b'||e.key==='B'){
+      // curve or curve-arrow via current focus (Shift+B = arrow)
       const type=e.shiftKey?'curve-arrow':'curve';
       if(S.focused)connectTo({...S.focused},type);
       return;
