@@ -159,6 +159,13 @@ body{
   content:'';position:absolute;left:0;top:0;bottom:0;width:3px;
   border-radius:6px 0 0 6px;background:var(--i-color,#a78bfa);
 }
+/* 横長の丸（スタジアム形）: 長方形の左右に半円 */
+.idea.shape-pill{
+  border-radius:999px;padding-left:22px;padding-right:22px;
+  border-color:var(--i-color,#a78bfa);
+}
+/* 丸形は左端バーの代わりにボーダー全体へカラーを反映 */
+.idea.shape-pill::before{display:none}
 .idea:hover{border-color:var(--accent)}
 .idea.focused{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent)}
 .idea.move-selected{border-color:var(--amber);box-shadow:0 0 0 2px var(--amber)}
@@ -289,6 +296,22 @@ body{
 
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
 .connecting{animation:pulse 1s infinite}
+
+/* ── Selection toolbar (複数選択時のマウス操作) ── */
+#sel-toolbar{
+  position:fixed;top:48px;left:50%;transform:translateX(-50%);
+  display:none;align-items:center;gap:6px;z-index:90;
+  background:var(--surface);border:1px solid var(--card-border);
+  border-radius:8px;padding:6px 8px;box-shadow:0 6px 18px rgba(0,0,0,.35);
+}
+#sel-toolbar.show{display:flex}
+.sel-tb-label{font-size:10px;color:var(--dim);letter-spacing:.04em}
+.sel-tb-btn{
+  background:var(--bg);border:1px solid var(--card-border);color:var(--text);
+  border-radius:5px;cursor:pointer;padding:3px 9px;font-size:11px;white-space:nowrap;
+}
+.sel-tb-btn:hover{border-color:var(--accent);background:var(--surface)}
+.sel-tb-sep{width:1px;height:18px;background:var(--card-border);margin:0 3px}
 </style>
 </head>
 <body>
@@ -299,7 +322,7 @@ body{
   <span id="mode-badge">SELECT</span>
   <span id="zoom-disp" title="クリックでリセット">100%</span>
   <div class="hdr-sep"></div>
-  <span id="key-hints">i:アイデア  z:ゾーン  c:接続  f:選択  s:レイアウト  /:検索  p:色  Shift+クリック:複数選択</span>
+  <span id="key-hints">i:アイデア  z:ゾーン  c:接続  f:選択  o:変形  s:レイアウト  /:検索  p:色  Shift+クリック:複数選択</span>
   <div id="layer-panel" title="クリック:切替  ●◐○:Visible/Dim/Hidden  名前ダブルクリック:編集"></div>
   <span id="active-warn" title="このレイヤーは他レイヤーからHiddenになっています">⚠ Hidden</span>
   <button class="tb-btn" id="theme-btn" title="テーマ切替">◑</button>
@@ -333,6 +356,18 @@ body{
 
 <div id="toast"></div>
 
+<div id="sel-toolbar">
+  <span class="sel-tb-label">変形</span>
+  <button class="sel-tb-btn" data-shape="rect" title="四角形に変形">▭ 四角</button>
+  <button class="sel-tb-btn" data-shape="pill" title="横長の丸（スタジアム形）に変形">▢ 丸</button>
+  <div class="sel-tb-sep"></div>
+  <span class="sel-tb-label">コネクタ</span>
+  <button class="sel-tb-btn" data-conn="line" title="直線">── 線</button>
+  <button class="sel-tb-btn" data-conn="arrow" title="矢印">→ 矢印</button>
+  <button class="sel-tb-btn" data-conn="curve" title="曲線">⌒ 曲線</button>
+  <button class="sel-tb-btn" data-conn="curve-arrow" title="曲線の矢印">⤳ 曲線矢印</button>
+</div>
+
 <div id="search-bar">
   <span class="search-icon">🔍</span>
   <input id="search-input" type="text" autocomplete="off" spellcheck="false"
@@ -354,6 +389,7 @@ body{
         <div class="help-row"><span class="help-key">Enter</span><span class="help-desc">編集モード開始</span></div>
         <div class="help-row"><span class="help-key">Tab</span><span class="help-desc">選択 ↔ 編集モード切替</span></div>
         <div class="help-row"><span class="help-key">x / Del</span><span class="help-desc">フォーカス中を削除 / 複数選択中は全件削除</span></div>
+        <div class="help-row"><span class="help-key">o</span><span class="help-desc">アイデアの形状を四角 ↔ 横長の丸に変形</span></div>
         <div class="help-row"><span class="help-key">Ctrl+D</span><span class="help-desc">アイデアを複製 (+24,+24)</span></div>
         <div class="help-row"><span class="help-key">u / Ctrl+Z</span><span class="help-desc">元に戻す（最大50ステップ）</span></div>
         <div class="help-row"><span class="help-key">Esc</span><span class="help-desc">モード終了・フォーカス解除</span></div>
@@ -382,6 +418,7 @@ body{
         <div class="help-row"><span class="help-key">Shift+Enter</span><span class="help-desc">矢印付き直線で接続</span></div>
         <div class="help-row"><span class="help-key">b</span><span class="help-desc">曲線で接続</span></div>
         <div class="help-row"><span class="help-key">Shift+B</span><span class="help-desc">矢印付き曲線で接続</span></div>
+        <div class="help-row"><span class="help-key">複数選択→バー</span><span class="help-desc">線 / 矢印 / 曲線 / 曲線矢印 に種別変更</span></div>
       </div>
       <div class="help-section">
         <h4>複数選択 (移動モード)</h4>
@@ -393,6 +430,8 @@ body{
         <div class="help-row"><span class="help-key">Shift+Arrow</span><span class="help-desc">選択中を 50px 移動</span></div>
         <div class="help-row"><span class="help-key">g</span><span class="help-desc">選択中を重心に集合アニメーション</span></div>
         <div class="help-row"><span class="help-key">p</span><span class="help-desc">選択中に一括色付け</span></div>
+        <div class="help-row"><span class="help-key">o</span><span class="help-desc">選択中アイデアを一括変形（四角 ↔ 丸）</span></div>
+        <div class="help-row"><span class="help-key">ツールバー</span><span class="help-desc">選択中に上部へ出るバーで変形・コネクタ種別を変更</span></div>
         <div class="help-row"><span class="help-key">Enter</span><span class="help-desc">確定（選択解除）</span></div>
       </div>
       <div class="help-section">
@@ -522,6 +561,12 @@ const palette=document.getElementById('palette');
 const paletteGrid=document.getElementById('palette-grid');
 const layerPanel=document.getElementById('layer-panel');
 const activeWarn=document.getElementById('active-warn');
+const selToolbar=document.getElementById('sel-toolbar');
+selToolbar.addEventListener('click',e=>{
+  const b=e.target.closest('.sel-tb-btn');if(!b)return;
+  if(b.dataset.shape)setIdeaShape(b.dataset.shape);
+  else if(b.dataset.conn)setConnectorType(b.dataset.conn);
+});
 const searchBar=document.getElementById('search-bar');
 const searchInput=document.getElementById('search-input');
 const searchCount=document.getElementById('search-count');
@@ -573,7 +618,7 @@ function clearFocus(){
 function updateCmd(){
   const n=S.moveSelection.length;
   if(S.cmdMode==='move'){
-    cmdText.textContent=`移動モード: ${n}件選択中 — g:集合  p:色付け  Arrow:移動  Enter:確定  Esc:解除`;
+    cmdText.textContent=`移動モード: ${n}件選択中 — g:集合  p:色  o:変形  Arrow:移動  上部バー:変形/コネクタ  Esc:解除`;
   } else if(S.cmdMode==='connect'){
     cmdText.textContent='接続先を選択: Arrow/f で移動  Enter:直線  Shift+Enter:矢印  b:曲線  Shift+B:曲線矢印  Esc:キャンセル';
   } else if(S.cmdMode==='palette'){
@@ -595,6 +640,7 @@ function updateCmd(){
 
   const ni=Object.keys(S.ideas).length;
   cmdStats.textContent=`${ni} ideas · ${S.connectors.length} conn · ${S.zones.length} zones`;
+  updateSelectionToolbar();
 }
 
 // ── Layer system ──────────────────────────────────────────────────────────
@@ -894,6 +940,7 @@ function renderIdea(id){
   }
   const color=o.color||'purple';
   el.style.setProperty('--i-color',COLOR_HEX[color]||COLOR_HEX.purple);
+  el.classList.toggle('shape-pill',o.shape==='pill');
   el.style.left=o.x+'px';el.style.top=o.y+'px';
   if(S.mode==='edit'&&el.classList.contains('editing'))return;
   const lines=(o.text||'').split('\n');
@@ -1207,6 +1254,54 @@ function cancelMoveSelect(){
     if(el){el.classList.remove('move-selected');el.classList.remove('focused');}
   });
   S.moveSelection=[];S.cmdMode=null;updateCmd();
+}
+
+// ── Shape transform ───────────────────────────────────────────────────────
+// returns the idea endpoints an operation should target:
+// multi-selection if present, otherwise the focused idea.
+function shapeTargets(){
+  if(S.moveSelection.length>0)return S.moveSelection.filter(s=>s.kind==='idea');
+  if(S.focused&&S.focused.kind==='idea')return[S.focused];
+  return[];
+}
+// 'o' shortcut: toggle each target between rect and pill
+function toggleIdeaShape(){
+  const targets=shapeTargets();
+  if(!targets.length){toast('アイデアを選択してください');return;}
+  pushHistory();
+  targets.forEach(({id})=>{
+    const o=S.ideas[id];if(!o)return;
+    o.shape=o.shape==='pill'?'rect':'pill';
+    renderIdea(id);
+  });
+  redrawConnectors();save();
+  toast(targets.length>1?`${targets.length}件の形状を変更しました`:'形状を変更しました');
+}
+// toolbar: set a specific shape on every target
+function setIdeaShape(shape){
+  const targets=shapeTargets();
+  if(!targets.length){toast('アイデアを選択してください');return;}
+  pushHistory();
+  targets.forEach(({id})=>{const o=S.ideas[id];if(o){o.shape=shape;renderIdea(id);}});
+  redrawConnectors();save();
+  toast(`${targets.length}件を${shape==='pill'?'丸':'四角'}に変形しました`);
+}
+// toolbar: change the type of connectors whose both endpoints are selected
+function setConnectorType(type){
+  if(S.moveSelection.length<1){toast('アイデアを選択してください');return;}
+  const sel=new Set(S.moveSelection.map(s=>s.kind+':'+s.id));
+  const targets=S.connectors.filter(c=>
+    sel.has(c.from.kind+':'+c.from.id)&&sel.has(c.to.kind+':'+c.to.id));
+  if(!targets.length){toast('選択範囲内に接続がありません');return;}
+  pushHistory();
+  targets.forEach(c=>c.type=type);
+  redrawConnectors();save();
+  const labels={line:'線',arrow:'矢印',curve:'曲線','curve-arrow':'曲線矢印'};
+  toast(`${targets.length}本のコネクタを${labels[type]||type}に変更`);
+}
+// show the floating toolbar only while a multi-selection is active
+function updateSelectionToolbar(){
+  selToolbar.classList.toggle('show',S.cmdMode==='move'&&S.moveSelection.length>0);
 }
 // clamp a board coordinate so the card stays inside the board (keeps it on the minimap)
 function clampToBoard(v,size){return Math.max(20,Math.min(BOARD_SIZE-size-20,v));}
@@ -1764,6 +1859,7 @@ document.addEventListener('keydown',e=>{
     if(e.key==='g'){gatherMoveSelection();return;}
     if(e.key==='a'){smartGather();return;}
     if(e.key==='p'){openPalette();return;}
+    if(e.key==='o'){toggleIdeaShape();return;}
     if(e.key==='f'||e.key==='m'){openHintSelect(false,true);return;}
     if(e.key==='Enter'){cancelMoveSelect();return;}
     if(e.key==='x'||e.key==='Delete'){deleteSelected();return;}
@@ -1840,6 +1936,7 @@ document.addEventListener('keydown',e=>{
     case 'f':openHintSelect(false,false);break;
     case 'm':S.cmdMode='move';S.moveSelection=[];updateCmd();openHintSelect(false,true);break;
     case 'p':openPalette();break;
+    case 'o':toggleIdeaShape();break;
     case 's':autoLayout();break;
     case 'a':smartGather();break;
     case '/':e.preventDefault();openSearch();break;
