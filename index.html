@@ -1290,9 +1290,10 @@ function setIdeaShape(shape){
 function setConnectorType(type){
   if(S.moveSelection.length<1){toast('アイデアを選択してください');return;}
   const sel=new Set(S.moveSelection.map(s=>s.kind+':'+s.id));
-  const targets=S.connectors.filter(c=>
-    sel.has(c.from.kind+':'+c.from.id)&&sel.has(c.to.kind+':'+c.to.id));
-  if(!targets.length){toast('選択範囲内に接続がありません');return;}
+  const inSel=ep=>sel.has(ep.kind+':'+ep.id);
+  // 選択中アイデアにつながっているコネクタを対象（少なくとも一方の端点が選択範囲内）
+  const targets=S.connectors.filter(c=>inSel(c.from)||inSel(c.to));
+  if(!targets.length){toast('選択中のアイデアに接続がありません');return;}
   pushHistory();
   targets.forEach(c=>c.type=type);
   redrawConnectors();save();
