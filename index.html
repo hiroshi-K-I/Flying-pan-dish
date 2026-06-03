@@ -632,6 +632,8 @@ const paletteGrid=document.getElementById('palette-grid');
 const layerPanel=document.getElementById('layer-panel');
 const activeWarn=document.getElementById('active-warn');
 const selToolbar=document.getElementById('sel-toolbar');
+// One delegated handler for the floating toolbar; each button declares its
+// action via a data-* attribute (data-shape / data-conn / data-conn-del).
 selToolbar.addEventListener('click',e=>{
   const b=e.target.closest('.sel-tb-btn');if(!b||b.disabled)return;
   if(b.dataset.shape)setIdeaShape(b.dataset.shape);
@@ -1504,9 +1506,21 @@ function showContextMenu(x,y,items){
   ctxMenu.style.left=Math.max(6,Math.min(x,window.innerWidth-r.width-8))+'px';
   ctxMenu.style.top=Math.max(6,Math.min(y,window.innerHeight-r.height-8))+'px';
 }
+// Decide what a context-menu action should operate on.
+// If the right-clicked item is part of the current multi-selection, keep the
+// selection (the menu acts on the whole group — like most editors). Otherwise
+// collapse to a single focus on the clicked item, so menu actions — which all
+// prefer S.moveSelection — don't accidentally hit the previous selection.
+function focusForMenu(kind,id){
+  const inSelection=S.cmdMode==='move'&&
+    S.moveSelection.some(s=>s.kind===kind&&String(s.id)===String(id));
+  if(inSelection)return;
+  if(S.cmdMode==='move')cancelMoveSelect();
+  focus(kind,id);
+}
 function openIdeaMenu(e,id){
   const o=S.ideas[id];if(!o)return;
-  focus('idea',id);
+  focusForMenu('idea',id);
   showContextMenu(e.clientX,e.clientY,[
     {head:'アイデア'},
     {label:'編集',key:'Enter',fn:()=>startEdit(id)},
@@ -1520,7 +1534,7 @@ function openIdeaMenu(e,id){
 }
 function openZoneMenu(e,id){
   const z=S.zones.find(z=>z.id===id);if(!z)return;
-  focus('zone',id);
+  focusForMenu('zone',id);
   showContextMenu(e.clientX,e.clientY,[
     {head:'ゾーン'},
     {label:'ラベル編集',key:'Enter',fn:()=>startZoneEdit(id)},
@@ -2337,8 +2351,9 @@ boardWrap.addEventListener('mousemove',e=>{
     updateConnectLine(b.x,b.y);
     return;
   }
-  // hover-highlight the connector under the cursor (select mode, idle)
-  if(S.mode!=='select'||S.cmdMode==='move')return;
+  // hover-highlight the connector under the cursor (select mode, idle only —
+  // skip while a button is held so card-drag / pan / rubber-band don't flicker)
+  if(e.buttons||S.mode!=='select'||S.cmdMode==='move')return;
   const hit=hitTestConnector(e.clientX,e.clientY);
   if(hit===hoveredConn)return;
   if(hoveredConn){const p=getEl('conn',hoveredConn);if(p)p.classList.remove('hover');}
