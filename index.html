@@ -13,7 +13,7 @@
   --bg:#111110;--surface:#18171a;--card:#18171a;--card-border:#252422;
   --text:#ededeb;--muted:#706e68;--dim:#4a4845;
   --header-bg:#18171a;--header-border:#1c1b19;
-  --accent:#f97316;--green:#34d399;--amber:#fbbf24;
+  --accent:#f97316;--green:#34d399;--amber:#fbbf24;--red:#f87171;
   --pink:#f472b6;--purple:#a78bfa;--cyan:#60a5fa;
   --selection:rgba(249,115,22,0.12);
 }
@@ -21,7 +21,7 @@ body.light{
   --bg:#faf9f7;--surface:#f0ece6;--card:#ffffff;--card-border:#e5e1db;
   --text:#1a1a1a;--muted:#6f6860;--dim:#a09890;
   --header-bg:#f0ece6;--header-border:#e8e5e0;
-  --accent:#ea580c;--green:#059669;
+  --accent:#ea580c;--green:#059669;--red:#dc2626;
 }
 body{
   background:var(--bg);color:var(--text);
@@ -311,7 +311,56 @@ body{
   border-radius:5px;cursor:pointer;padding:3px 9px;font-size:11px;white-space:nowrap;
 }
 .sel-tb-btn:hover{border-color:var(--accent);background:var(--surface)}
+.sel-tb-btn.active{border-color:var(--accent);background:var(--accent);color:#fff}
+.sel-tb-btn:disabled{opacity:.35;cursor:not-allowed}
+.sel-tb-btn:disabled:hover{border-color:var(--card-border);background:var(--bg)}
+.sel-tb-btn.danger:hover{border-color:var(--red);color:var(--red)}
 .sel-tb-sep{width:1px;height:18px;background:var(--card-border);margin:0 3px}
+
+/* ── Connectors: 直接クリックで選択 ── */
+.conn{transition:stroke-width .1s}
+.conn.hover{stroke-width:2.6px}
+.conn.focused{stroke-width:3px;filter:drop-shadow(0 0 3px var(--accent))}
+
+/* ── Context menu (右クリック) ── */
+#ctx-menu{
+  position:fixed;display:none;z-index:400;min-width:148px;
+  background:var(--surface);border:1px solid var(--card-border);
+  border-radius:8px;padding:4px;box-shadow:0 8px 24px rgba(0,0,0,.4);
+  font-size:12px;user-select:none;
+}
+#ctx-menu.show{display:block}
+.ctx-item{
+  display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:5px;
+  color:var(--text);cursor:pointer;white-space:nowrap;
+}
+.ctx-item:hover{background:var(--accent);color:#fff}
+.ctx-item.danger:hover{background:var(--red)}
+.ctx-item .ctx-key{margin-left:auto;font-size:10px;color:var(--dim)}
+.ctx-item:hover .ctx-key{color:rgba(255,255,255,.7)}
+.ctx-sep{height:1px;background:var(--card-border);margin:4px 2px}
+.ctx-head{padding:4px 10px 2px;font-size:10px;color:var(--dim);letter-spacing:.04em}
+
+/* ── Empty board quick guide ── */
+#empty-guide{
+  position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
+  display:none;flex-direction:column;align-items:center;gap:14px;z-index:15;
+  pointer-events:none;text-align:center;color:var(--muted);
+}
+#empty-guide.show{display:flex}
+#empty-guide .eg-title{font-size:15px;font-weight:600;color:var(--text)}
+#empty-guide .eg-sub{font-size:12px;color:var(--dim)}
+#empty-guide .eg-keys{
+  display:grid;grid-template-columns:auto auto;gap:6px 14px;
+  background:var(--surface);border:1px solid var(--card-border);
+  border-radius:10px;padding:14px 18px;box-shadow:0 6px 18px rgba(0,0,0,.3);
+}
+#empty-guide .eg-keys b{
+  justify-self:end;font-size:11px;color:var(--text);
+  background:var(--bg);border:1px solid var(--card-border);
+  border-radius:5px;padding:2px 7px;font-weight:600;
+}
+#empty-guide .eg-keys span{justify-self:start;font-size:12px;color:var(--muted);align-self:center}
 </style>
 </head>
 <body>
@@ -357,15 +406,33 @@ body{
 <div id="toast"></div>
 
 <div id="sel-toolbar">
-  <span class="sel-tb-label">変形</span>
-  <button class="sel-tb-btn" data-shape="rect" title="四角形に変形">▭ 四角</button>
-  <button class="sel-tb-btn" data-shape="pill" title="横長の丸（スタジアム形）に変形">▢ 丸</button>
-  <div class="sel-tb-sep"></div>
-  <span class="sel-tb-label">コネクタ</span>
+  <span class="tb-group-shape" style="display:flex;align-items:center;gap:6px">
+    <span class="sel-tb-label">変形</span>
+    <button class="sel-tb-btn" data-shape="rect" title="四角形に変形">▭ 四角</button>
+    <button class="sel-tb-btn" data-shape="pill" title="横長の丸（スタジアム形）に変形">▢ 丸</button>
+    <span class="sel-tb-sep"></span>
+  </span>
+  <span class="sel-tb-label tb-conn-label">コネクタ</span>
   <button class="sel-tb-btn" data-conn="line" title="直線">── 線</button>
   <button class="sel-tb-btn" data-conn="arrow" title="矢印">→ 矢印</button>
   <button class="sel-tb-btn" data-conn="curve" title="曲線">⌒ 曲線</button>
   <button class="sel-tb-btn" data-conn="curve-arrow" title="曲線の矢印">⤳ 曲線矢印</button>
+  <button class="sel-tb-btn danger" data-conn-del title="このコネクタを削除 (x)">🗑 削除</button>
+</div>
+<div id="ctx-menu"></div>
+<div id="empty-guide">
+  <div>
+    <div class="eg-title">アイデアボードへようこそ</div>
+    <div class="eg-sub">下のキーで始められます（<b style="all:unset;font-weight:600">?</b> でいつでもヘルプ）</div>
+  </div>
+  <div class="eg-keys">
+    <b>i</b><span>アイデアを作成</span>
+    <b>z</b><span>ゾーンを作成</span>
+    <b>c</b><span>選択して接続</span>
+    <b>o</b><span>形状を変形（四角 ↔ 丸）</span>
+    <b>右クリック</b><span>メニューを表示</span>
+    <b>?</b><span>ヘルプを開く</span>
+  </div>
 </div>
 
 <div id="search-bar">
@@ -392,6 +459,8 @@ body{
         <div class="help-row"><span class="help-key">o</span><span class="help-desc">アイデアの形状を四角 ↔ 横長の丸に変形</span></div>
         <div class="help-row"><span class="help-key">Ctrl+D</span><span class="help-desc">アイデアを複製 (+24,+24)</span></div>
         <div class="help-row"><span class="help-key">u / Ctrl+Z</span><span class="help-desc">元に戻す（最大50ステップ）</span></div>
+        <div class="help-row"><span class="help-key">右クリック</span><span class="help-desc">アイテム/背景にコンテキストメニュー</span></div>
+        <div class="help-row"><span class="help-key">?</span><span class="help-desc">このヘルプを開く/閉じる</span></div>
         <div class="help-row"><span class="help-key">Esc</span><span class="help-desc">モード終了・フォーカス解除</span></div>
       </div>
       <div class="help-section">
@@ -418,6 +487,7 @@ body{
         <div class="help-row"><span class="help-key">Shift+Enter</span><span class="help-desc">矢印付き直線で接続</span></div>
         <div class="help-row"><span class="help-key">b</span><span class="help-desc">曲線で接続</span></div>
         <div class="help-row"><span class="help-key">Shift+B</span><span class="help-desc">矢印付き曲線で接続</span></div>
+        <div class="help-row"><span class="help-key">線をクリック</span><span class="help-desc">コネクタを選択（バー/右クリックで種別変更・x で削除）</span></div>
         <div class="help-row"><span class="help-key">複数選択→バー</span><span class="help-desc">線 / 矢印 / 曲線 / 曲線矢印 に種別変更</span></div>
       </div>
       <div class="help-section">
@@ -563,9 +633,10 @@ const layerPanel=document.getElementById('layer-panel');
 const activeWarn=document.getElementById('active-warn');
 const selToolbar=document.getElementById('sel-toolbar');
 selToolbar.addEventListener('click',e=>{
-  const b=e.target.closest('.sel-tb-btn');if(!b)return;
+  const b=e.target.closest('.sel-tb-btn');if(!b||b.disabled)return;
   if(b.dataset.shape)setIdeaShape(b.dataset.shape);
   else if(b.dataset.conn)setConnectorType(b.dataset.conn);
+  else if('connDel' in b.dataset)deleteSelected();
 });
 const searchBar=document.getElementById('search-bar');
 const searchInput=document.getElementById('search-input');
@@ -641,6 +712,7 @@ function updateCmd(){
   const ni=Object.keys(S.ideas).length;
   cmdStats.textContent=`${ni} ideas · ${S.connectors.length} conn · ${S.zones.length} zones`;
   updateSelectionToolbar();
+  updateEmptyGuide();
 }
 
 // ── Layer system ──────────────────────────────────────────────────────────
@@ -864,8 +936,13 @@ function animateConnectors(ms){
   };
   requestAnimationFrame(step);
 }
+// screen-space geometry of each drawn connector, for distance-based hit testing
+// (the SVG sits *behind* the board, so we can't rely on SVG pointer events)
+let connGeom=[];
+let hoveredConn=null;
 function redrawConnectors(){
   connG.innerHTML='';
+  connGeom=[];hoveredConn=null;
   S.connectors.forEach(c=>{
     const fromEl=getEl(c.from.kind,c.from.id);
     const toEl=getEl(c.to.kind,c.to.id);
@@ -902,21 +979,55 @@ function redrawConnectors(){
       const a=rectExitPoint(fromRect,cp);
       const b=rectExitPoint(toRect,cp);
       d=`M${a.x},${a.y} Q${cp.x},${cp.y} ${b.x},${b.y}`;
+      // sample the quadratic bezier so we can hit-test it
+      const pts=[];for(let i=0;i<=12;i++){const t=i/12,u=1-t;
+        pts.push({x:u*u*a.x+2*u*t*cp.x+t*t*b.x,y:u*u*a.y+2*u*t*cp.y+t*t*b.y});}
+      connGeom.push({id:c.id,pts});
     } else {
       const a=rectExitPoint(fromRect,toCenter);
       const b=rectExitPoint(toRect,fromCenter);
       d=`M${a.x},${a.y} L${b.x},${b.y}`;
+      connGeom.push({id:c.id,pts:[a,b]});
     }
-    const path=document.createElementNS('http://www.w3.org/2000/svg','path');
+    const NS='http://www.w3.org/2000/svg';
+    const focused=S.focused&&S.focused.kind==='conn'&&S.focused.id===c.id;
+    const path=document.createElementNS(NS,'path');
     path.setAttribute('d',d);
     path.setAttribute('stroke',hex);
     path.setAttribute('stroke-width','1.5');
     path.setAttribute('stroke-linecap','round');
     path.setAttribute('fill','none');
+    path.setAttribute('class','conn'+(focused?' focused':''));
+    path.setAttribute('data-id',c.id);
     if(opacity<1)path.setAttribute('opacity',String(opacity));
     if(arrow)path.setAttribute('marker-end',`url(#arr-${colorName})`);
     connG.appendChild(path);
   });
+}
+// shortest distance (screen px) from a point to a polyline segment
+function distToSeg(p,a,b){
+  const dx=b.x-a.x,dy=b.y-a.y,l2=dx*dx+dy*dy;
+  let t=l2?((p.x-a.x)*dx+(p.y-a.y)*dy)/l2:0;
+  t=Math.max(0,Math.min(1,t));
+  const cx=a.x+t*dx,cy=a.y+t*dy;
+  return Math.hypot(p.x-cx,p.y-cy);
+}
+// nearest connector id within `threshold` screen px of (clientX,clientY), else null
+function hitTestConnector(clientX,clientY,threshold=8){
+  const p={x:clientX,y:clientY};let best=null,bestD=threshold;
+  connGeom.forEach(g=>{
+    for(let i=0;i<g.pts.length-1;i++){
+      const d=distToSeg(p,g.pts[i],g.pts[i+1]);
+      if(d<bestD){bestD=d;best=g.id;}
+    }
+  });
+  return best;
+}
+// select a single connector (exits move/connect modes first)
+function selectConnector(id){
+  if(S.cmdMode==='move')cancelMoveSelect();
+  if(S.cmdMode==='connect')exitConnectMode();
+  focus('conn',id);
 }
 
 // ── Idea ──────────────────────────────────────────────────────────────────
@@ -937,6 +1048,11 @@ function renderIdea(id){
       focus('idea',+id);
     });
     el.addEventListener('dblclick',e=>{e.stopPropagation();startEdit(+id);});
+    el.addEventListener('contextmenu',e=>{
+      e.preventDefault();e.stopPropagation();
+      if(S.mode!=='select')return;
+      openIdeaMenu(e,+id);
+    });
   }
   const color=o.color||'purple';
   el.style.setProperty('--i-color',COLOR_HEX[color]||COLOR_HEX.purple);
@@ -1033,6 +1149,11 @@ function renderZone(id){
       focus('zone',id);
     });
     el.addEventListener('dblclick',e=>{e.stopPropagation();startZoneEdit(id);});
+    el.addEventListener('contextmenu',e=>{
+      e.preventDefault();e.stopPropagation();
+      if(S.mode!=='select')return;
+      openZoneMenu(e,id);
+    });
   }
   const color=z.color?COLOR_HEX[z.color]:null;
   el.style.left=z.x+'px';el.style.top=z.y+'px';
@@ -1274,7 +1395,7 @@ function toggleIdeaShape(){
     o.shape=o.shape==='pill'?'rect':'pill';
     renderIdea(id);
   });
-  redrawConnectors();save();
+  redrawConnectors();save();updateSelectionToolbar();
   toast(targets.length>1?`${targets.length}件の形状を変更しました`:'形状を変更しました');
 }
 // toolbar: set a specific shape on every target
@@ -1283,27 +1404,168 @@ function setIdeaShape(shape){
   if(!targets.length){toast('アイデアを選択してください');return;}
   pushHistory();
   targets.forEach(({id})=>{const o=S.ideas[id];if(o){o.shape=shape;renderIdea(id);}});
-  redrawConnectors();save();
+  redrawConnectors();save();updateSelectionToolbar();
   toast(`${targets.length}件を${shape==='pill'?'丸':'四角'}に変形しました`);
 }
-// toolbar: change the type of connectors whose both endpoints are selected
+// returns the connectors a type-change should target:
+// the single focused connector, else those touching the multi-selection.
+function connectorTargets(){
+  if(S.focused&&S.focused.kind==='conn'){
+    const c=S.connectors.find(c=>c.id===S.focused.id);
+    return c?[c]:[];
+  }
+  if(S.moveSelection.length>0){
+    const sel=new Set(S.moveSelection.map(s=>s.kind+':'+s.id));
+    const inSel=ep=>sel.has(ep.kind+':'+ep.id);
+    return S.connectors.filter(c=>inSel(c.from)||inSel(c.to));
+  }
+  return[];
+}
+// toolbar: change connector type for the focused connector or selected ideas' connectors
 function setConnectorType(type){
-  if(S.moveSelection.length<1){toast('アイデアを選択してください');return;}
-  const sel=new Set(S.moveSelection.map(s=>s.kind+':'+s.id));
-  const inSel=ep=>sel.has(ep.kind+':'+ep.id);
-  // 選択中アイデアにつながっているコネクタを対象（少なくとも一方の端点が選択範囲内）
-  const targets=S.connectors.filter(c=>inSel(c.from)||inSel(c.to));
-  if(!targets.length){toast('選択中のアイデアに接続がありません');return;}
+  const targets=connectorTargets();
+  if(!targets.length){
+    toast(S.focused&&S.focused.kind==='conn'?'コネクタが見つかりません':'選択中のアイデアに接続がありません');
+    return;
+  }
   pushHistory();
   targets.forEach(c=>c.type=type);
-  redrawConnectors();save();
+  redrawConnectors();save();updateSelectionToolbar();
   const labels={line:'線',arrow:'矢印',curve:'曲線','curve-arrow':'曲線矢印'};
-  toast(`${targets.length}本のコネクタを${labels[type]||type}に変更`);
+  toast(targets.length>1?`${targets.length}本のコネクタを${labels[type]||type}に変更`:`コネクタを${labels[type]||type}に変更`);
 }
-// show the floating toolbar only while a multi-selection is active
+// show/configure the floating toolbar for either a multi-selection
+// (shape + connector groups) or a single focused connector (connector group).
 function updateSelectionToolbar(){
-  selToolbar.classList.toggle('show',S.cmdMode==='move'&&S.moveSelection.length>0);
+  const moveSel=S.cmdMode==='move'&&S.moveSelection.length>0;
+  const connFocus=!!(S.focused&&S.focused.kind==='conn');
+  const show=moveSel||connFocus;
+  selToolbar.classList.toggle('show',show);
+  if(!show)return;
+  // shape group only makes sense for an idea multi-selection
+  const shapeGroup=selToolbar.querySelector('.tb-group-shape');
+  if(shapeGroup)shapeGroup.style.display=moveSel?'flex':'none';
+  const delBtn=selToolbar.querySelector('[data-conn-del]');
+  if(delBtn)delBtn.style.display=connFocus?'':'none';
+  const connLabel=selToolbar.querySelector('.tb-conn-label');
+  if(connLabel)connLabel.textContent=connFocus?'このコネクタ':'コネクタ';
+  // ── active shape highlight (only when all selected ideas share a shape) ──
+  if(moveSel){
+    const shapes=new Set(S.moveSelection.filter(s=>s.kind==='idea')
+      .map(s=>(S.ideas[s.id]&&S.ideas[s.id].shape==='pill')?'pill':'rect'));
+    const shapeOne=shapes.size===1?[...shapes][0]:null;
+    selToolbar.querySelectorAll('[data-shape]').forEach(b=>{
+      b.classList.toggle('active',b.dataset.shape===shapeOne);
+      b.disabled=shapes.size===0;
+    });
+  }
+  // ── connector buttons: disable when none apply, highlight common type ──
+  const targets=connectorTargets();
+  const types=new Set(targets.map(c=>c.type||'line'));
+  const typeOne=types.size===1?[...types][0]:null;
+  selToolbar.querySelectorAll('[data-conn]').forEach(b=>{
+    b.disabled=targets.length===0;
+    b.classList.toggle('active',b.dataset.conn===typeOne);
+  });
 }
+
+// ── Empty board quick guide ───────────────────────────────────────────────
+const emptyGuide=document.getElementById('empty-guide');
+function updateEmptyGuide(){
+  emptyGuide.classList.toggle('show',Object.keys(S.ideas).length===0&&S.zones.length===0);
+}
+
+// ── Idea duplication (shared by Ctrl+D and context menu) ──────────────────
+function duplicateIdea(id){
+  const o=S.ideas[id];if(!o)return;
+  pushHistory();
+  const newId=createIdeaAt(o.x+24,o.y+24,o.text);
+  S.ideas[newId].color=o.color;S.ideas[newId].layer=o.layer;S.ideas[newId].shape=o.shape;
+  renderIdea(newId);focus('idea',newId);save();
+}
+
+// ── Context menu (右クリック) ──────────────────────────────────────────────
+const ctxMenu=document.getElementById('ctx-menu');
+function hideContextMenu(){ctxMenu.classList.remove('show');ctxMenu.innerHTML='';}
+function showContextMenu(x,y,items){
+  ctxMenu.innerHTML='';
+  items.forEach(it=>{
+    if(it.sep){const s=document.createElement('div');s.className='ctx-sep';ctxMenu.appendChild(s);return;}
+    if(it.head){const h=document.createElement('div');h.className='ctx-head';h.textContent=it.head;ctxMenu.appendChild(h);return;}
+    const d=document.createElement('div');
+    d.className='ctx-item'+(it.danger?' danger':'');
+    d.innerHTML=`<span>${esc(it.label)}</span>`+(it.key?`<span class="ctx-key">${esc(it.key)}</span>`:'');
+    d.addEventListener('click',()=>{hideContextMenu();it.fn&&it.fn();});
+    ctxMenu.appendChild(d);
+  });
+  ctxMenu.style.left=x+'px';ctxMenu.style.top=y+'px';
+  ctxMenu.classList.add('show');
+  const r=ctxMenu.getBoundingClientRect();
+  ctxMenu.style.left=Math.max(6,Math.min(x,window.innerWidth-r.width-8))+'px';
+  ctxMenu.style.top=Math.max(6,Math.min(y,window.innerHeight-r.height-8))+'px';
+}
+function openIdeaMenu(e,id){
+  const o=S.ideas[id];if(!o)return;
+  focus('idea',id);
+  showContextMenu(e.clientX,e.clientY,[
+    {head:'アイデア'},
+    {label:'編集',key:'Enter',fn:()=>startEdit(id)},
+    {label:o.shape==='pill'?'四角に変形':'丸に変形',key:'o',fn:()=>toggleIdeaShape()},
+    {label:'色を変更',key:'p',fn:()=>openPalette()},
+    {label:'複製',key:'Ctrl+D',fn:()=>duplicateIdea(id)},
+    {label:'ここから接続',key:'c',fn:()=>startConnectMode()},
+    {sep:true},
+    {label:'削除',key:'x',danger:true,fn:()=>deleteSelected()},
+  ]);
+}
+function openZoneMenu(e,id){
+  const z=S.zones.find(z=>z.id===id);if(!z)return;
+  focus('zone',id);
+  showContextMenu(e.clientX,e.clientY,[
+    {head:'ゾーン'},
+    {label:'ラベル編集',key:'Enter',fn:()=>startZoneEdit(id)},
+    {label:'色を変更',key:'p',fn:()=>openPalette()},
+    {label:'リサイズ',key:'r',fn:()=>{S.resizeZoneId=id;updateCmd();toast('リサイズモード: Arrow で変更  Enter で確定');}},
+    {sep:true},
+    {label:'削除',key:'x',danger:true,fn:()=>deleteSelected()},
+  ]);
+}
+function openConnectorMenu(e,id){
+  const c=S.connectors.find(c=>c.id===id);if(!c)return;
+  showContextMenu(e.clientX,e.clientY,[
+    {head:'コネクタの種別'},
+    {label:'── 線',fn:()=>setConnectorType('line')},
+    {label:'→ 矢印',fn:()=>setConnectorType('arrow')},
+    {label:'⌒ 曲線',fn:()=>setConnectorType('curve')},
+    {label:'⤳ 曲線矢印',fn:()=>setConnectorType('curve-arrow')},
+    {sep:true},
+    {label:'削除',key:'x',danger:true,fn:()=>deleteSelected()},
+  ]);
+}
+function openBoardMenu(e){
+  const b=s2b(e.clientX,e.clientY);
+  showContextMenu(e.clientX,e.clientY,[
+    {label:'ここにアイデアを作成',key:'i',fn:()=>{const id=createIdeaAt(b.x-108,b.y-40,'');focus('idea',id);startEdit(id);}},
+    {label:'ゾーンを作成',key:'z',fn:()=>createZone()},
+    {sep:true},
+    {label:'全体にフィット',key:'v',fn:()=>fitAll()},
+  ]);
+}
+// background right-click → board menu (idea/zone/connector handlers stopPropagation)
+boardWrap.addEventListener('contextmenu',e=>{
+  const t=e.target;
+  const onBoard=t===boardWrap||t===board||t===ideasLayer||t===zonesLayer;
+  if(!onBoard)return;
+  e.preventDefault();
+  const hit=hitTestConnector(e.clientX,e.clientY);
+  if(hit){selectConnector(hit);openConnectorMenu(e,hit);}
+  else openBoardMenu(e);
+});
+// dismiss the menu on outside interaction
+document.addEventListener('mousedown',e=>{if(!e.target.closest('#ctx-menu'))hideContextMenu();});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')hideContextMenu();},true);
+boardWrap.addEventListener('wheel',hideContextMenu,{passive:true});
+
 // clamp a board coordinate so the card stays inside the board (keeps it on the minimap)
 function clampToBoard(v,size){return Math.max(20,Math.min(BOARD_SIZE-size-20,v));}
 // place an ordered list of idea objects on a grid whose CENTER OF MASS is exactly (cx,cy)
@@ -1771,7 +2033,8 @@ document.addEventListener('keydown',e=>{
   // escape always first
   if(e.key==='Escape'){
     viewMode=false;
-    if(S.cmdMode==='palette')closePalette();
+    if(helpModal.classList.contains('show'))helpModal.classList.remove('show');
+    else if(S.cmdMode==='palette')closePalette();
     else if(S.cmdMode==='connect')exitConnectMode();
     else if(S.cmdMode==='move')cancelMoveSelect();
     else if(S.resizeZoneId){S.resizeZoneId=null;updateCmd();}
@@ -1806,13 +2069,7 @@ document.addEventListener('keydown',e=>{
     }
     if(e.key==='d'){
       e.preventDefault();
-      if(S.focused&&S.focused.kind==='idea'){
-        pushHistory();
-        const o=S.ideas[S.focused.id];if(!o)return;
-        const newId=createIdeaAt(o.x+24,o.y+24,o.text);
-        S.ideas[newId].color=o.color;S.ideas[newId].layer=o.layer;
-        renderIdea(newId);focus('idea',newId);save();
-      }
+      if(S.focused&&S.focused.kind==='idea')duplicateIdea(S.focused.id);
       return;
     }
     if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)){
@@ -1949,6 +2206,7 @@ document.addEventListener('keydown',e=>{
         toast('リサイズモード: Arrow で変更  Enter で確定');
       }
       break;
+    case '?':helpModal.classList.toggle('show');break;
     case 'Enter':
       if(S.focused){
         if(S.focused.kind==='idea')startEdit(S.focused.id);
@@ -2027,6 +2285,9 @@ function deleteSelected(){
     S.zones=S.zones.filter(z=>z.id!==id);
     const el=getEl('zone',id);if(el)el.remove();
     S.connectors=S.connectors.filter(c=>!(c.from.id===id&&c.from.kind==='zone')&&!(c.to.id===id&&c.to.kind==='zone'));
+  } else if(kind==='conn'){
+    S.connectors=S.connectors.filter(c=>c.id!==id);
+    toast('コネクタを削除しました');
   }
   redrawConnectors();save();updateCmd();updateLayerUI();
 }
@@ -2057,6 +2318,11 @@ boardWrap.addEventListener('mousedown',e=>{
     const onBoard=t===boardWrap||t===board||t===ideasLayer||t===zonesLayer;
     if(!onBoard)return;
     if(e.shiftKey){startRubberBand(e);return;}
+    // clicking on/near a connector selects it (instead of panning)
+    if(S.mode==='select'&&S.cmdMode!=='connect'){
+      const hit=hitTestConnector(e.clientX,e.clientY);
+      if(hit){e.preventDefault();selectConnector(hit);return;}
+    }
     clearFocus();
     const ox=e.clientX-S.pan.x,oy=e.clientY-S.pan.y;
     const mv=e=>{S.pan.x=e.clientX-ox;S.pan.y=e.clientY-oy;applyXform();};
@@ -2069,7 +2335,16 @@ boardWrap.addEventListener('mousemove',e=>{
   if(S.cmdMode==='connect'&&S.connectFrom){
     const b=s2b(e.clientX,e.clientY);
     updateConnectLine(b.x,b.y);
+    return;
   }
+  // hover-highlight the connector under the cursor (select mode, idle)
+  if(S.mode!=='select'||S.cmdMode==='move')return;
+  const hit=hitTestConnector(e.clientX,e.clientY);
+  if(hit===hoveredConn)return;
+  if(hoveredConn){const p=getEl('conn',hoveredConn);if(p)p.classList.remove('hover');}
+  hoveredConn=hit;
+  if(hit){const p=getEl('conn',hit);if(p)p.classList.add('hover');boardWrap.style.cursor='pointer';}
+  else boardWrap.style.cursor='';
 });
 
 // ── Minimap ───────────────────────────────────────────────────────────────
